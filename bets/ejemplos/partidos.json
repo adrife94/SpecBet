@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "partidos": [
+    {
+      "partido": "Real Madrid vs Barça",
+      "cuotas": [
+        { "casa": "Bet365", "1": 2.10, "X": 3.30, "2": 3.50 },
+        { "casa": "Codere", "1": 2.05, "X": 3.40, "2": 3.60 },
+        { "casa": "Winamax", "1": 2.12, "X": 3.25, "2": 3.55 }
+      ]
+    },
+    {
+      "partido": "Sevilla vs Betis",
+      "cuotas": [
+        { "casa": "Bet365", "1": 2.40, "X": 3.10, "2": 3.00 },
+        { "casa": "Retabet", "1": 2.45, "X": 3.20, "2": "N/A" }
+      ]
+    },
+    {
+      "partido": "Atlético vs Valencia",
+      "cuotas": [
+        { "casa": "Bet365", "1": 1.80, "X": 3.50, "2": 4.50 }
+      ]
+    }
+  ]
+}
