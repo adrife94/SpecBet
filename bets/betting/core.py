@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
 
 from betting.storage import ErrorDatos
 
@@ -314,3 +315,421 @@ def repartir(partidos: list[dict], inversion: Decimal) -> list[Reparto]:
     """Reparte la inversión en cada partido de forma independiente y los ordena."""
     repartos = [repartir_partido(partido, inversion) for partido in partidos]
     return ordenar_repartos(repartos)
+
+
+# --- Spec 003: conversión de freebets (dónde cubrir y cuánto) ---
+
+
+@dataclass(frozen=True)
+class Bono:
+    """Una freebet a convertir: casa que la otorga, importe y sus términos.
+
+    `fecha_limite` es la fecha máxima para apostar/saldar; `cuota_min`/`cuota_max`
+    acotan la cuota de la pata gratis; `partido`/`resultado` fijan la jugada si el
+    usuario lo pide. Importes y cuotas en `Decimal`, fecha en `datetime`.
+    """
+
+    casa: str
+    importe: Decimal
+    fecha_limite: datetime | None = None
+    cuota_min: Decimal | None = None
+    cuota_max: Decimal | None = None
+    partido: str | None = None
+    resultado: str | None = None
+
+
+def construir_bono(dato: dict) -> Bono:
+    """Valida un bono (de `--bonos` o de los flags de la CLI) y lo normaliza.
+
+    Comprueba que el importe sea un número mayor que 0 (RF-17), que el resultado
+    fijado sea 1/X/2, que el rango de cuota sea coherente y que la fecha límite
+    sea interpretable. Lanza `ErrorDatos` con un mensaje en español si algo falla.
+    """
+    casa = dato.get("casa")
+    if not isinstance(casa, str) or not casa.strip():
+        raise ErrorDatos("Un bono no tiene una 'casa' válida.")
+
+    importe = _bono_decimal(dato.get("importe"), "importe", casa)
+    if importe is None or importe <= 0:
+        raise ErrorDatos(f"El importe del bono de '{casa}' debe ser un número mayor que 0.")
+
+    cuota_min = _bono_decimal(dato.get("min"), "cuota mínima", casa)
+    cuota_max = _bono_decimal(dato.get("max"), "cuota máxima", casa)
+    if cuota_min is not None and cuota_max is not None and cuota_min > cuota_max:
+        raise ErrorDatos(
+            f"En el bono de '{casa}', la cuota mínima ({cuota_min}) supera a la máxima ({cuota_max})."
+        )
+
+    resultado = dato.get("resultado")
+    if resultado is not None and resultado not in RESULTADOS:
+        raise ErrorDatos(
+            f"En el bono de '{casa}', el resultado fijado '{resultado}' no es 1, X ni 2."
+        )
+
+    partido = dato.get("partido")
+    if partido is not None and (not isinstance(partido, str) or not partido.strip()):
+        raise ErrorDatos(f"En el bono de '{casa}', el 'partido' fijado no es un nombre válido.")
+
+    return Bono(
+        casa=casa,
+        importe=importe,
+        fecha_limite=_parse_fecha(dato.get("fecha_limite"), f"la fecha límite del bono de '{casa}'"),
+        cuota_min=cuota_min,
+        cuota_max=cuota_max,
+        partido=partido,
+        resultado=resultado,
+    )
+
+
+def _bono_decimal(valor: object, campo: str, casa: str) -> Decimal | None:
+    """Convierte a `Decimal` un número dado como int/Decimal/str; `None` se conserva."""
+    if valor is None:
+        return None
+    if isinstance(valor, bool):
+        raise ErrorDatos(f"En el bono de '{casa}', {campo} no es un número válido: {valor!r}.")
+    if isinstance(valor, Decimal):
+        return valor
+    if isinstance(valor, int):
+        return Decimal(valor)
+    if isinstance(valor, str):
+        try:
+            return Decimal(valor)
+        except InvalidOperation as exc:
+            raise ErrorDatos(
+                f"En el bono de '{casa}', {campo} no es un número válido: {valor!r}."
+            ) from exc
+    raise ErrorDatos(f"En el bono de '{casa}', {campo} no es un número válido: {valor!r}.")
+
+
+def _parse_fecha(valor: object, contexto: str) -> datetime | None:
+    """Interpreta una fecha ISO 8601 (date o datetime); `None` se conserva."""
+    if valor is None:
+        return None
+    if not isinstance(valor, str):
+        raise ErrorDatos(f"{contexto} debe ser una fecha en texto (ISO 8601).")
+    try:
+        return datetime.fromisoformat(valor)
+    except ValueError as exc:
+        raise ErrorDatos(f"{contexto} no es una fecha válida (usa ISO 8601): {valor!r}.") from exc
+
+
+@dataclass(frozen=True)
+class PataFreebet:
+    """Una apuesta de la jugada: la freebet (`tipo="gratis"`) o una cobertura.
+
+    `importe` va sin redondear; el importe de la pata gratis es el de la freebet.
+    """
+
+    tipo: str  # "gratis" | "cobertura"
+    resultado: str
+    importe: Decimal
+    cuota: Decimal
+    casa: str
+
+
+@dataclass(frozen=True)
+class Jugada:
+    """Conversión de una freebet en un partido: sus patas y el valor que deja.
+
+    `valor_extraido` es el beneficio neto garantizado (igual gane quien gane) y
+    `conversion` es ese valor sobre el importe de la freebet. Ambos sin redondear.
+    """
+
+    partido: str
+    resultado_gratis: str
+    patas: tuple[PataFreebet, ...]
+    valor_extraido: Decimal
+    conversion: Decimal
+
+
+def calcular_jugada(
+    partido: str,
+    importe: Decimal,
+    resultado_gratis: str,
+    cuota_gratis: Decimal,
+    casa_bono: str,
+    coberturas: dict[str, tuple[Decimal, str]],
+) -> Jugada:
+    """Reparte la cobertura de una freebet para igualar el beneficio neto (RF-2, RF-3).
+
+    Con la freebet `importe` jugada al `resultado_gratis` a `cuota_gratis` en
+    `casa_bono`, cubre los otros dos resultados con las cuotas/casas de
+    `coberturas` de modo que el neto sea el mismo pase lo que pase: el retorno de
+    cobertura común es `R = importe·(cuota_gratis−1)` y cada cobertura apuesta
+    `R/cuota`. El valor extraído es `R` menos lo apostado en cobertura (RF-4).
+    """
+    retorno = importe * (cuota_gratis - Decimal(1))
+    patas = [PataFreebet("gratis", resultado_gratis, importe, cuota_gratis, casa_bono)]
+    for r in RESULTADOS:
+        if r == resultado_gratis:
+            continue
+        cuota, casa = coberturas[r]
+        patas.append(PataFreebet("cobertura", r, retorno / cuota, cuota, casa))
+
+    invertido_cobertura = sum(
+        (p.importe for p in patas if p.tipo == "cobertura"), Decimal(0)
+    )
+    valor_extraido = retorno - invertido_cobertura
+    return Jugada(
+        partido=partido,
+        resultado_gratis=resultado_gratis,
+        patas=tuple(patas),
+        valor_extraido=valor_extraido,
+        conversion=valor_extraido / importe,
+    )
+
+
+def _entrada_de_casa(partido: dict, casa_norm: str) -> dict | None:
+    """La entrada de cuotas de una casa dentro de un partido, o `None` si no está."""
+    for entrada in partido["cuotas"]:
+        if normalizar(entrada["casa"]) == casa_norm:
+            return entrada
+    return None
+
+
+def _en_rango(cuota: Decimal, bono: Bono) -> bool:
+    """Comprueba que la cuota de la pata gratis esté dentro del rango del bono (RF-9)."""
+    if bono.cuota_min is not None and cuota < bono.cuota_min:
+        return False
+    if bono.cuota_max is not None and cuota > bono.cuota_max:
+        return False
+    return True
+
+
+def _mejor_cobertura(
+    partido: dict, resultado: str, casa_bono_norm: str
+) -> tuple[Decimal, str] | None:
+    """Mejor cuota de un resultado entre las casas distintas de la del bono (RF-11, RF-12).
+
+    Devuelve `(cuota, casa)` con la cuota más alta; ante empate, la primera por
+    orden de entrada (determinista). `None` si ninguna casa distinta de la del
+    bono ofrece una cuota válida para ese resultado (no cubrible, RF-13).
+    """
+    mejor: tuple[Decimal, str] | None = None
+    for entrada in partido["cuotas"]:
+        if normalizar(entrada["casa"]) == casa_bono_norm:
+            continue
+        cuota = _a_cuota_valida(entrada.get(resultado))
+        if cuota is None:
+            continue
+        if mejor is None or cuota > mejor[0]:
+            mejor = (cuota, entrada["casa"])
+    return mejor
+
+
+def _jugada_para_resultado(
+    partido: dict, bono: Bono, casa_bono_norm: str, entrada_bono: dict, resultado_gratis: str
+) -> Jugada | None:
+    """Jugada de la freebet en un resultado concreto, o `None` si no es viable.
+
+    No es viable si la casa del bono no ofrece cuota válida en ese resultado, si
+    la cuota queda fuera del rango (RF-9) o si algún resultado a cubrir no tiene
+    casa distinta de la del bono (RF-13).
+    """
+    cuota_gratis = _a_cuota_valida(entrada_bono.get(resultado_gratis))
+    if cuota_gratis is None or not _en_rango(cuota_gratis, bono):
+        return None
+    coberturas: dict[str, tuple[Decimal, str]] = {}
+    for r in RESULTADOS:
+        if r == resultado_gratis:
+            continue
+        cobertura = _mejor_cobertura(partido, r, casa_bono_norm)
+        if cobertura is None:
+            return None
+        coberturas[r] = cobertura
+    return calcular_jugada(
+        partido["partido"], bono.importe, resultado_gratis, cuota_gratis, entrada_bono["casa"], coberturas
+    )
+
+
+def mejor_jugada(partido: dict, bono: Bono) -> Jugada | None:
+    """La jugada de mayor valor extraído de un bono en un partido (RF-6, RF-7).
+
+    Sin resultado fijado prueba 1/X/2 y devuelve la de mayor valor extraído; con
+    resultado fijado solo prueba ese. `None` si la casa del bono no está en el
+    partido o ningún resultado da una jugada viable.
+    """
+    casa_norm = normalizar(bono.casa)
+    entrada_bono = _entrada_de_casa(partido, casa_norm)
+    if entrada_bono is None:
+        return None
+    resultados = [bono.resultado] if bono.resultado is not None else list(RESULTADOS)
+    candidatas = [
+        j
+        for r in resultados
+        if (j := _jugada_para_resultado(partido, bono, casa_norm, entrada_bono, r)) is not None
+    ]
+    if not candidatas:
+        return None
+    return max(candidatas, key=lambda j: j.valor_extraido)
+
+
+@dataclass
+class EvalPartido:
+    """Un partido evaluado para un bono: su jugada o el motivo de no ser jugable."""
+
+    partido: str
+    fecha: str | None
+    jugable: bool
+    motivo: str | None
+    jugada: Jugada | None
+    aviso_sin_fecha: bool
+
+
+@dataclass
+class ResultadoBono:
+    """El listado de partidos de un bono, ordenado, con su jugada recomendada.
+
+    `valor_extraido` es el de la jugada recomendada (o `None` si no hay plan);
+    `sin_plan` indica que ningún partido dio una jugada viable (RF-32).
+    """
+
+    bono: Bono
+    partidos: list[EvalPartido]
+    recomendada: EvalPartido | None
+    valor_extraido: Decimal | None
+    sin_plan: bool
+
+
+def _motivo_no_jugable(partido: dict, bono: Bono) -> str:
+    """Explica por qué un bono no tiene jugada en un partido (RF-10, RF-13, RF-14)."""
+    casa_norm = normalizar(bono.casa)
+    entrada = _entrada_de_casa(partido, casa_norm)
+    if entrada is None:
+        return f"La casa '{bono.casa}' no participa en este partido."
+    if bono.resultado is not None:
+        cuota = _a_cuota_valida(entrada.get(bono.resultado))
+        if cuota is None:
+            return f"La casa del bono no ofrece cuota válida para el resultado fijado ('{bono.resultado}')."
+        if not _en_rango(cuota, bono):
+            return f"La cuota del resultado fijado ('{bono.resultado}' = {cuota}) está fuera del rango."
+        return f"El resultado fijado ('{bono.resultado}') no se puede cubrir en casa distinta a la del bono."
+    return "Ningún resultado admite jugada (cuota fuera de rango o sin cobertura en casa distinta)."
+
+
+def evaluar_partido_bono(partido: dict, bono: Bono) -> EvalPartido:
+    """Evalúa un partido para un bono: plazo, jugada y motivo si no es jugable.
+
+    Con fecha límite, un partido posterior es fuera de plazo (RF-24, RF-25) y uno
+    sin fecha se evalúa igual pero con aviso (RF-26); sin fecha límite las fechas
+    se ignoran (RF-27).
+    """
+    nombre = partido["partido"]
+    fecha = partido.get("fecha")
+    aviso_sin_fecha = False
+
+    if bono.fecha_limite is not None:
+        if fecha is None:
+            aviso_sin_fecha = True
+        else:
+            fecha_partido = _parse_fecha(fecha, f"la fecha del partido '{nombre}'")
+            if fecha_partido > bono.fecha_limite:
+                return EvalPartido(
+                    partido=nombre,
+                    fecha=fecha,
+                    jugable=False,
+                    motivo="Se juega después de la fecha límite de la freebet (fuera de plazo).",
+                    jugada=None,
+                    aviso_sin_fecha=False,
+                )
+
+    jugada = mejor_jugada(partido, bono)
+    if jugada is None:
+        return EvalPartido(
+            partido=nombre,
+            fecha=fecha,
+            jugable=False,
+            motivo=_motivo_no_jugable(partido, bono),
+            jugada=None,
+            aviso_sin_fecha=aviso_sin_fecha,
+        )
+    return EvalPartido(
+        partido=nombre,
+        fecha=fecha,
+        jugable=True,
+        motivo=None,
+        jugada=jugada,
+        aviso_sin_fecha=aviso_sin_fecha,
+    )
+
+
+def evaluar_bono(partidos: list[dict], bono: Bono) -> ResultadoBono:
+    """Evalúa un bono en todos los partidos, ordena y marca la recomendada.
+
+    Los jugables van por valor extraído descendente (orden estable ante empates);
+    los no jugables al final (RF-15). La recomendada es la primera jugable (RF-33).
+    Si el bono fija un partido, solo se evalúa ese (RF-8).
+    """
+    if bono.partido is not None:
+        clave = normalizar(bono.partido)
+        partidos = [p for p in partidos if normalizar(p["partido"]) == clave]
+    evals = [evaluar_partido_bono(partido, bono) for partido in partidos]
+    jugables = [e for e in evals if e.jugable]
+    no_jugables = [e for e in evals if not e.jugable]
+    jugables.sort(key=lambda e: e.jugada.valor_extraido, reverse=True)
+    recomendada = jugables[0] if jugables else None
+    return ResultadoBono(
+        bono=bono,
+        partidos=jugables + no_jugables,
+        recomendada=recomendada,
+        valor_extraido=recomendada.jugada.valor_extraido if recomendada else None,
+        sin_plan=not jugables,
+    )
+
+
+@dataclass(frozen=True)
+class Colision:
+    """Dos bonos recomiendan apostar en la misma apuesta (partido+resultado+casa)."""
+
+    partido: str
+    resultado: str
+    casa: str
+
+
+@dataclass
+class ResultadoLote:
+    """Resultado de evaluar un lote de bonos independientes (RF-28..RF-32).
+
+    `valor_total` suma el valor extraído recomendado de cada bono (0 los que no
+    tienen plan); `conversion_total` es ese valor sobre la suma de importes.
+    """
+
+    resultados: list[ResultadoBono]
+    valor_total: Decimal
+    conversion_total: Decimal | None
+    colisiones: list[Colision]
+
+
+def _detectar_colisiones(resultados: list[ResultadoBono]) -> list[Colision]:
+    """Busca patas compartidas (partido+resultado+casa) entre jugadas recomendadas (RF-31)."""
+    por_apuesta: dict[tuple[str, str, str], str] = {}
+    repetidas: dict[tuple[str, str, str], str] = {}
+    for resultado in resultados:
+        if resultado.recomendada is None:
+            continue
+        for pata in resultado.recomendada.jugada.patas:
+            clave = (resultado.recomendada.partido, pata.resultado, normalizar(pata.casa))
+            if clave in por_apuesta:
+                repetidas[clave] = por_apuesta[clave]
+            else:
+                por_apuesta[clave] = pata.casa
+    return [
+        Colision(partido=partido, resultado=resultado, casa=casa)
+        for (partido, resultado, _casa_norm), casa in repetidas.items()
+    ]
+
+
+def evaluar_lote(partidos: list[dict], bonos: list[Bono]) -> ResultadoLote:
+    """Evalúa cada bono del lote de forma independiente y agrega el total (RF-28..RF-32)."""
+    resultados = [evaluar_bono(partidos, bono) for bono in bonos]
+    valor_total = sum(
+        (r.valor_extraido for r in resultados if r.valor_extraido is not None), Decimal(0)
+    )
+    importe_total = sum((bono.importe for bono in bonos), Decimal(0))
+    conversion_total = valor_total / importe_total if importe_total > 0 else None
+    return ResultadoLote(
+        resultados=resultados,
+        valor_total=valor_total,
+        conversion_total=conversion_total,
+        colisiones=_detectar_colisiones(resultados),
+    )

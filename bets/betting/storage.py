@@ -172,3 +172,43 @@ def _a_decimal(valor: object, ruta: Path, nombre: str, campo: str) -> Decimal | 
         raise ErrorDatos(
             f"En '{ruta}', el {campo} del partido '{nombre}' no es un número válido: {valor!r}."
         ) from exc
+
+
+def cargar_bonos(ruta: str | Path) -> list[dict]:
+    """Carga el JSON de bonos del lote (entrada del comando `freebet`).
+
+    Devuelve la lista de bonos como diccionarios, con sus números (`importe`,
+    `min`, `max`) cargados como `Decimal`. Valida solo la estructura mínima
+    (raíz objeto, `bonos` lista, y cada bono con `casa` e `importe`); la
+    validación semántica de cada bono la hace `core.construir_bono`. Lanza
+    `ErrorDatos` si el archivo no se puede leer, no es JSON válido o no tiene la
+    estructura esperada.
+    """
+    ruta = Path(ruta)
+    try:
+        texto = ruta.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ErrorDatos(f"No se pudo leer el archivo de bonos '{ruta}': {exc}") from exc
+
+    try:
+        datos = json.loads(texto, parse_float=Decimal)
+    except json.JSONDecodeError as exc:
+        raise ErrorDatos(f"El archivo de bonos '{ruta}' no es JSON válido: {exc}") from exc
+
+    if not isinstance(datos, dict):
+        raise ErrorDatos(f"El archivo de bonos '{ruta}' debe contener un objeto JSON en la raíz.")
+
+    bonos = datos.get("bonos")
+    if not isinstance(bonos, list):
+        raise ErrorDatos(f"En '{ruta}', 'bonos' debe ser una lista.")
+
+    for indice, bono in enumerate(bonos):
+        posicion = f"el bono nº {indice + 1}"
+        if not isinstance(bono, dict):
+            raise ErrorDatos(f"En '{ruta}', {posicion} debe ser un objeto.")
+        casa = bono.get("casa")
+        if not isinstance(casa, str) or not casa.strip():
+            raise ErrorDatos(f"En '{ruta}', {posicion} no tiene una 'casa' válida.")
+        if bono.get("importe") is None:
+            raise ErrorDatos(f"En '{ruta}', el bono de '{casa}' no tiene 'importe'.")
+    return bonos

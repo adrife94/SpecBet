@@ -60,6 +60,42 @@ def build_parser() -> argparse.ArgumentParser:
         help="Emite el resultado como JSON reutilizable en vez de la tabla.",
     )
     surebet.set_defaults(func=_surebet)
+
+    freebet = sub.add_parser(
+        "freebet",
+        help="Convierte una o varias freebets: dónde cubrir, cuánto, valor y % de conversión.",
+    )
+    freebet.add_argument(
+        "archivo",
+        help="Ruta al JSON de cuotas por casa (Formato A, el mismo que compare).",
+    )
+    freebet.add_argument("--casa", help="Casa que otorga la freebet (para un solo bono).")
+    freebet.add_argument("--importe", help="Importe de la freebet (número mayor que 0).")
+    freebet.add_argument(
+        "--fecha-limite",
+        dest="fecha_limite",
+        metavar="FECHA",
+        help="Fecha límite de la freebet (ISO 8601); descarta los partidos posteriores.",
+    )
+    freebet.add_argument(
+        "--min", dest="cuota_min", metavar="CUOTA", help="Cuota mínima de la pata gratis."
+    )
+    freebet.add_argument(
+        "--max", dest="cuota_max", metavar="CUOTA", help="Cuota máxima de la pata gratis."
+    )
+    freebet.add_argument("--partido", help="Fijar el partido de la pata gratis.")
+    freebet.add_argument("--resultado", metavar="1|X|2", help="Fijar el resultado de la pata gratis.")
+    freebet.add_argument(
+        "--bonos",
+        metavar="ARCHIVO",
+        help="JSON con varios bonos (lote), en vez de --casa/--importe.",
+    )
+    freebet.add_argument(
+        "--json",
+        action="store_true",
+        help="Emite el resultado como JSON reutilizable en vez de la tabla.",
+    )
+    freebet.set_defaults(func=_freebet)
     return parser
 
 
@@ -291,6 +327,182 @@ def _json_surebet(repartos: list[Reparto], inversion: Decimal) -> str:
                 "patas": _patas_json(r),
             }
             for r in repartos
+        ],
+    }
+    return json.dumps(datos, ensure_ascii=False, indent=2)
+
+
+def _freebet(args: argparse.Namespace) -> int:
+    try:
+        partidos = storage.cargar(args.archivo)
+        core.verificar_duplicados(partidos)
+        bonos = _construir_bonos(args)
+    except ErrorDatos as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    if bonos is None:
+        print(
+            "Error: indica un bono con --casa e --importe, o un lote con --bonos.",
+            file=sys.stderr,
+        )
+        return 1
+
+    lote = core.evaluar_lote(partidos, bonos)
+
+    if args.json:
+        print(_json_freebet(lote))
+    elif not partidos:
+        print("No hay partidos que analizar.")
+    else:
+        print(_tabla_freebet(lote))
+
+    _avisar_freebet(lote)
+    print(RECORDATORIO_CUOTAS, file=sys.stderr)
+    return 0
+
+
+def _construir_bonos(args: argparse.Namespace) -> list | None:
+    """Construye la lista de bonos desde `--bonos` o desde los flags de un bono.
+
+    Devuelve `None` si no se indicó ni un bono (--casa) ni un lote (--bonos), para
+    que la CLI lo traduzca al error de RF-18.
+    """
+    if args.bonos is not None:
+        if args.casa is not None:
+            raise ErrorDatos("Usa --bonos (lote) o --casa (un bono), no ambos.")
+        return [core.construir_bono(dato) for dato in storage.cargar_bonos(args.bonos)]
+
+    if args.casa is None and args.importe is None:
+        return None
+
+    dato: dict = {"casa": args.casa, "importe": args.importe}
+    if args.fecha_limite is not None:
+        dato["fecha_limite"] = args.fecha_limite
+    if args.cuota_min is not None:
+        dato["min"] = args.cuota_min
+    if args.cuota_max is not None:
+        dato["max"] = args.cuota_max
+    if args.partido is not None:
+        dato["partido"] = args.partido
+    if args.resultado is not None:
+        dato["resultado"] = args.resultado
+    return [core.construir_bono(dato)]
+
+
+def _eur(valor: Decimal | None) -> str:
+    if valor is None:
+        return SIN_DATO
+    return str(valor.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
+def _pct(valor: Decimal | None) -> str:
+    if valor is None:
+        return SIN_DATO
+    return str((valor * 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
+def _bloque_partido(ev, es_recomendada: bool) -> list[str]:
+    marca = "★" if es_recomendada else " "
+    fecha = ev.fecha if ev.fecha else SIN_DATO
+    if not ev.jugable:
+        return [f"  {marca} {ev.partido} ({fecha})  no jugable: {ev.motivo}"]
+    jugada = ev.jugada
+    lineas = [
+        f"  {marca} {ev.partido} ({fecha})  valor {_eur(jugada.valor_extraido)} €  "
+        f"conversión {_pct(jugada.conversion)} %"
+    ]
+    for pata in jugada.patas:
+        etiqueta = "gratis   " if pata.tipo == "gratis" else "cobertura"
+        lineas.append(
+            f"        {etiqueta} {pata.resultado}  {_eur(pata.importe)} € @{pata.cuota}  {pata.casa}"
+        )
+    return lineas
+
+
+def _tabla_freebet(lote) -> str:
+    lineas: list[str] = []
+    for resultado in lote.resultados:
+        cabecera = f"Bono: {resultado.bono.casa} — {_eur(resultado.bono.importe)} €"
+        if resultado.bono.fecha_limite is not None:
+            cabecera += f" (límite {resultado.bono.fecha_limite.date().isoformat()})"
+        if resultado.sin_plan:
+            cabecera += "  [sin plan]"
+        lineas.append(cabecera)
+        for ev in resultado.partidos:
+            lineas.extend(_bloque_partido(ev, resultado.recomendada is ev))
+        lineas.append("")
+    lineas.append(
+        f"Valor total del lote: {_eur(lote.valor_total)} €  "
+        f"(conversión total {_pct(lote.conversion_total)} %)"
+    )
+    return "\n".join(lineas)
+
+
+def _avisar_freebet(lote) -> None:
+    """Avisos por stderr: partidos sin fecha con límite (RF-26) y colisiones (RF-31)."""
+    for resultado in lote.resultados:
+        for ev in resultado.partidos:
+            if ev.aviso_sin_fecha:
+                print(
+                    f"Aviso: '{ev.partido}' no tiene fecha; no se pudo comprobar el plazo "
+                    f"del bono de '{resultado.bono.casa}'.",
+                    file=sys.stderr,
+                )
+    for colision in lote.colisiones:
+        print(
+            f"Aviso: dos bonos coinciden en {colision.partido} / {colision.resultado} @ "
+            f"{colision.casa}; puedes consolidar esa apuesta.",
+            file=sys.stderr,
+        )
+
+
+def _pata_freebet_json(pata) -> dict:
+    return {
+        "tipo": pata.tipo,
+        "resultado": pata.resultado,
+        "importe": _eur(pata.importe),
+        "cuota": str(pata.cuota),
+        "casa": pata.casa,
+    }
+
+
+def _evalpartido_json(ev) -> dict:
+    return {
+        "partido": ev.partido,
+        "fecha": ev.fecha,
+        "jugable": ev.jugable,
+        "motivo": ev.motivo,
+        "aviso_sin_fecha": ev.aviso_sin_fecha,
+        "valor_extraido": _eur(ev.jugada.valor_extraido) if ev.jugada else None,
+        "conversion": _pct(ev.jugada.conversion) if ev.jugada else None,
+        "patas": [_pata_freebet_json(p) for p in ev.jugada.patas] if ev.jugada else None,
+    }
+
+
+def _json_freebet(lote) -> str:
+    """Serializa el lote como JSON reutilizable (RF-21).
+
+    Importes, cuotas, valor y % van como string para no reintroducir `float`; un
+    partido no jugable lleva `patas`, `valor_extraido` y `conversion` a `null`.
+    """
+    datos = {
+        "version": 1,
+        "valor_total": _eur(lote.valor_total),
+        "conversion_total": _pct(lote.conversion_total) if lote.conversion_total is not None else None,
+        "bonos": [
+            {
+                "casa": resultado.bono.casa,
+                "importe": _eur(resultado.bono.importe),
+                "sin_plan": resultado.sin_plan,
+                "recomendada": resultado.recomendada.partido if resultado.recomendada else None,
+                "partidos": [_evalpartido_json(ev) for ev in resultado.partidos],
+            }
+            for resultado in lote.resultados
+        ],
+        "colisiones": [
+            {"partido": c.partido, "resultado": c.resultado, "casa": c.casa}
+            for c in lote.colisiones
         ],
     }
     return json.dumps(datos, ensure_ascii=False, indent=2)

@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "bonos": [
+    { "casa": "Luckia",   "importe": 10, "fecha_limite": "2026-09-15", "min": 1.5, "max": 4.0 },
+    { "casa": "Sportium", "importe": 100 }
+  ]
+}
