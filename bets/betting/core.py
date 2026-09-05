@@ -213,3 +213,104 @@ def comparar(partidos: list[dict]) -> list[PartidoEvaluado]:
     verificar_duplicados(partidos)
     evaluados = [evaluar_partido(partido) for partido in partidos]
     return ordenar(evaluados)
+
+
+# --- Spec 002: reparto de stake sobre arbitraje (surebet) ---
+
+
+@dataclass(frozen=True)
+class Pata:
+    """Una pata del reparto: cuánto apostar a un resultado y en qué casa(s).
+
+    `importe` va sin redondear (el redondeo a 2 decimales es cosa de la
+    presentación). `casas` son todas las que ofrecen esa mejor cuota; el importe
+    se apuesta íntegro en una cualquiera de ellas, no se divide (RF-8).
+    """
+
+    importe: Decimal
+    cuota: Decimal
+    casas: tuple[str, ...]
+
+
+@dataclass
+class Reparto:
+    """Reparto de una inversión total entre los tres resultados de un partido.
+
+    `retorno`, `beneficio` y `patas` van sin redondear y son `None` cuando el
+    partido no es calculable (llegó incompleto del comparador). `payout` es el
+    del comparador y solo se usa para mostrar; la señal `surebet` se decide por
+    el signo del beneficio, calculado desde las cuotas exactas.
+    """
+
+    nombre: str
+    no_calculable: bool
+    surebet: bool
+    payout: Decimal | None
+    inversion: Decimal
+    retorno: Decimal | None
+    beneficio: Decimal | None
+    patas: dict[str, Pata] | None
+
+
+def repartir_partido(partido: dict, inversion: Decimal) -> Reparto:
+    """Reparte `inversion` entre 1/X/2 igualando el retorno gane quien gane.
+
+    Para cada resultado el importe es `inversion · (1/cuota) / Σ(1/cuota)`, de
+    modo que `importe · cuota` (el retorno) es el mismo en los tres resultados
+    (RF-2) y los tres importes suman la inversión (RF-3). El beneficio es
+    `retorno − inversion`: positivo es surebet (RF-6), ≤ 0 es pérdida garantizada
+    (RF-7). Un partido incompleto en la entrada no se reparte (RF-9).
+    """
+    mejores = partido["mejores"]
+    cuotas = {r: mejores[r]["cuota"] for r in RESULTADOS}
+    if partido["incompleto"] or any(cuotas[r] is None for r in RESULTADOS):
+        return Reparto(
+            nombre=partido["partido"],
+            no_calculable=True,
+            surebet=False,
+            payout=partido["payout"],
+            inversion=inversion,
+            retorno=None,
+            beneficio=None,
+            patas=None,
+        )
+
+    inversa = sum((Decimal(1) / cuotas[r] for r in RESULTADOS), Decimal(0))
+    retorno = inversion / inversa
+    patas = {
+        r: Pata(
+            importe=inversion * (Decimal(1) / cuotas[r]) / inversa,
+            cuota=cuotas[r],
+            casas=tuple(mejores[r]["casas"]),
+        )
+        for r in RESULTADOS
+    }
+    beneficio = retorno - inversion
+    return Reparto(
+        nombre=partido["partido"],
+        no_calculable=False,
+        surebet=beneficio > 0,
+        payout=partido["payout"],
+        inversion=inversion,
+        retorno=retorno,
+        beneficio=beneficio,
+        patas=patas,
+    )
+
+
+def ordenar_repartos(repartos: list[Reparto]) -> list[Reparto]:
+    """Ordena por beneficio garantizado descendente; no calculables al final (RF-10).
+
+    Entre los calculables el orden es estable ante empates de beneficio; los no
+    calculables se dejan en su orden de entrada, después de todos los demás.
+    """
+    calculables = [r for r in repartos if not r.no_calculable]
+    no_calculables = [r for r in repartos if r.no_calculable]
+    calculables.sort(key=lambda r: r.beneficio, reverse=True)
+    return calculables + no_calculables
+
+
+def repartir(partidos: list[dict], inversion: Decimal) -> list[Reparto]:
+    """Reparte la inversión en cada partido de forma independiente y los ordena."""
+    repartos = [repartir_partido(partido, inversion) for partido in partidos]
+    return ordenar_repartos(repartos)

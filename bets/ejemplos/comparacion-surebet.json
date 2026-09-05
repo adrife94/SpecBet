@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "partidos": [
+    {
+      "partido": "Arbitraje FC vs United",
+      "payout": "100.80",
+      "incompleto": false,
+      "mejores": {
+        "1": {
+          "cuota": "2.10",
+          "casas": [
+            "Bet365"
+          ]
+        },
+        "X": {
+          "cuota": "3.60",
+          "casas": [
+            "Codere"
+          ]
+        },
+        "2": {
+          "cuota": "4.20",
+          "casas": [
+            "Codere"
+          ]
+        }
+      }
+    },
+    {
+      "partido": "Sevilla vs Betis",
+      "payout": "94.88",
+      "incompleto": false,
+      "mejores": {
+        "1": {
+          "cuota": "2.45",
+          "casas": [
+            "Retabet"
+          ]
+        },
+        "X": {
+          "cuota": "3.20",
+          "casas": [
+            "Retabet"
+          ]
+        },
+        "2": {
+          "cuota": "3.00",
+          "casas": [
+            "Bet365"
+          ]
+        }
+      }
+    },
+    {
+      "partido": "Atlético vs Valencia",
+      "payout": null,
+      "incompleto": true,
+      "mejores": {
+        "1": {
+          "cuota": "1.80",
+          "casas": [
+            "Bet365"
+          ]
+        },
+        "X": {
+          "cuota": "3.50",
+          "casas": [
+            "Bet365"
+          ]
+        },
+        "2": {
+          "cuota": "4.50",
+          "casas": [
+            "Bet365"
+          ]
+        }
+      }
+    }
+  ]
+}
