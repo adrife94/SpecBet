@@ -733,3 +733,201 @@ def evaluar_lote(partidos: list[dict], bonos: list[Bono]) -> ResultadoLote:
         conversion_total=conversion_total,
         colisiones=_detectar_colisiones(resultados),
     )
+
+
+# --- Spec 004: apuesta de menor coste para cumplir el rollover (bonus) ---
+
+
+@dataclass(frozen=True)
+class ConfigBonus:
+    """Parámetros de un bono con rollover: casa, importe a apostar y cuota mínima.
+
+    `cuota_minima` es la cuota mínima exigida para que la apuesta cuente;
+    `fecha_limite` es el plazo opcional. Importe y cuota en `Decimal`.
+    """
+
+    casa: str
+    importe: Decimal
+    cuota_minima: Decimal
+    fecha_limite: datetime | None = None
+
+
+def construir_config_bonus(dato: dict) -> ConfigBonus:
+    """Valida los parámetros del bono y los normaliza (RF-18, RF-19, RF-20).
+
+    Exige casa indicada, importe mayor que 0 y cuota mínima mayor que 1, y una
+    fecha límite interpretable si se da. Lanza `ErrorDatos` en español si falla.
+    """
+    casa = dato.get("casa")
+    if not isinstance(casa, str) or not casa.strip():
+        raise ErrorDatos("No se indicó la casa del bono.")
+
+    importe = _bono_decimal(dato.get("importe"), "importe", casa)
+    if importe is None or importe <= 0:
+        raise ErrorDatos(f"El importe a apostar con el bono de '{casa}' debe ser mayor que 0.")
+
+    cuota_minima = _bono_decimal(dato.get("cuota_minima"), "cuota mínima", casa)
+    if cuota_minima is None or cuota_minima <= 1:
+        raise ErrorDatos(f"La cuota mínima del bono de '{casa}' debe ser un número mayor que 1.")
+
+    return ConfigBonus(
+        casa=casa,
+        importe=importe,
+        cuota_minima=cuota_minima,
+        fecha_limite=_parse_fecha(
+            dato.get("fecha_limite"), f"la fecha límite del bono de '{casa}'"
+        ),
+    )
+
+
+@dataclass(frozen=True)
+class Cobertura:
+    """Una pata de cobertura: cuánto apostar a un resultado y en qué casa."""
+
+    resultado: str
+    importe: Decimal
+    cuota: Decimal
+    casa: str
+
+
+@dataclass(frozen=True)
+class Opcion:
+    """Anclar el bono en un resultado de un partido, con su cobertura y su coste.
+
+    `coste` va sin redondear; es lo apostado (bono + coberturas) menos el retorno
+    garantizado. Positivo es pérdida; negativo es arbitraje (RF-10).
+    """
+
+    partido: str
+    resultado: str
+    importe: Decimal
+    cuota: Decimal
+    casa: str
+    coberturas: tuple[Cobertura, ...]
+    coste: Decimal
+
+
+def calcular_opcion(
+    partido: str,
+    resultado: str,
+    importe: Decimal,
+    cuota_bono: Decimal,
+    casa_bono: str,
+    coberturas: dict[str, tuple[Decimal, str]],
+) -> Opcion:
+    """Cubre los otros dos resultados igualando el retorno y calcula el coste.
+
+    El retorno garantizado es `importe·cuota_bono`; cada cobertura apuesta
+    `retorno/cuota` para devolver ese mismo retorno (RF-5). El coste es lo
+    apostado (bono + coberturas) menos el retorno (RF-7).
+    """
+    retorno = importe * cuota_bono
+    patas: list[Cobertura] = []
+    total_cobertura = Decimal(0)
+    for r in RESULTADOS:
+        if r == resultado:
+            continue
+        cuota, casa = coberturas[r]
+        stake = retorno / cuota
+        total_cobertura += stake
+        patas.append(Cobertura(r, stake, cuota, casa))
+    coste = (importe + total_cobertura) - retorno
+    return Opcion(partido, resultado, importe, cuota_bono, casa_bono, tuple(patas), coste)
+
+
+@dataclass(frozen=True)
+class Descarte:
+    """Una opción o partido no propuesto y por qué (`resultado` None = todo el partido)."""
+
+    partido: str
+    resultado: str | None
+    motivo: str
+
+
+def _opciones_de_partido(partido: dict, config: ConfigBonus) -> tuple[list[Opcion], list[Descarte]]:
+    """Opciones válidas de un partido y sus descartes (RF-2, RF-6, RF-11, RF-12, RF-13)."""
+    casa_norm = normalizar(config.casa)
+    entrada_bono = _entrada_de_casa(partido, casa_norm)
+    if entrada_bono is None:
+        motivo = f"La casa '{config.casa}' no participa en este partido."
+        return [], [Descarte(partido["partido"], None, motivo)]
+
+    opciones: list[Opcion] = []
+    descartes: list[Descarte] = []
+    for resultado in RESULTADOS:
+        cuota = _a_cuota_valida(entrada_bono.get(resultado))
+        if cuota is None or cuota < config.cuota_minima:
+            continue  # sin cuota válida o bajo la mínima (RF-11): se omite sin ruido
+        coberturas: dict[str, tuple[Decimal, str]] = {}
+        cubrible = True
+        for otro in RESULTADOS:
+            if otro == resultado:
+                continue
+            cobertura = _mejor_cobertura(partido, otro, casa_norm)
+            if cobertura is None:
+                descartes.append(
+                    Descarte(
+                        partido["partido"],
+                        resultado,
+                        f"El resultado '{otro}' no se puede cubrir en casa distinta a la del bono.",
+                    )
+                )
+                cubrible = False
+                break
+            coberturas[otro] = cobertura
+        if not cubrible:
+            continue
+        opciones.append(
+            calcular_opcion(
+                partido["partido"], resultado, config.importe, cuota, entrada_bono["casa"], coberturas
+            )
+        )
+    return opciones, descartes
+
+
+@dataclass
+class ResultadoBonus:
+    """Opciones válidas de un bono (ordenadas por coste), descartes y avisos."""
+
+    config: ConfigBonus
+    opciones: list[Opcion]
+    descartes: list[Descarte]
+    avisos_sin_fecha: list[str]
+
+
+def evaluar_bonus(partidos: list[dict], config: ConfigBonus) -> ResultadoBonus:
+    """Genera todas las opciones del bono, aplica el plazo y las ordena por coste.
+
+    Con fecha límite, un partido posterior se descarta (RF-15) y uno sin fecha se
+    evalúa igual pero con aviso (RF-16); sin fecha límite las fechas se ignoran
+    (RF-17). Todas las opciones válidas se ordenan por coste ascendente, con las
+    de coste negativo (arbitraje) en el mismo orden (RF-9, RF-10).
+    """
+    opciones: list[Opcion] = []
+    descartes: list[Descarte] = []
+    avisos_sin_fecha: list[str] = []
+
+    for partido in partidos:
+        nombre = partido["partido"]
+        fecha = partido.get("fecha")
+        if config.fecha_limite is not None:
+            if fecha is None:
+                avisos_sin_fecha.append(nombre)
+            else:
+                fecha_partido = _parse_fecha(fecha, f"la fecha del partido '{nombre}'")
+                if fecha_partido > config.fecha_limite:
+                    descartes.append(
+                        Descarte(
+                            nombre,
+                            None,
+                            "Se juega después de la fecha límite del bono (fuera de plazo).",
+                        )
+                    )
+                    continue
+
+        opciones_partido, descartes_partido = _opciones_de_partido(partido, config)
+        opciones.extend(opciones_partido)
+        descartes.extend(descartes_partido)
+
+    opciones.sort(key=lambda o: o.coste)
+    return ResultadoBonus(config, opciones, descartes, avisos_sin_fecha)

@@ -96,6 +96,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="Emite el resultado como JSON reutilizable en vez de la tabla.",
     )
     freebet.set_defaults(func=_freebet)
+
+    bonus = sub.add_parser(
+        "bonus",
+        help="Apuesta de menor coste para cumplir el rollover de un bono (Caso 1).",
+    )
+    bonus.add_argument(
+        "archivo",
+        help="Ruta al JSON de cuotas por casa (Formato A, el mismo que compare).",
+    )
+    bonus.add_argument("--casa", help="Casa que da el bono.")
+    bonus.add_argument("--importe", help="Importe a apostar con el bono (número mayor que 0).")
+    bonus.add_argument(
+        "--min",
+        dest="cuota_minima",
+        metavar="CUOTA",
+        help="Cuota mínima exigida por el rollover (número mayor que 1).",
+    )
+    bonus.add_argument(
+        "--fecha-limite",
+        dest="fecha_limite",
+        metavar="FECHA",
+        help="Fecha límite del bono (ISO 8601); descarta los partidos posteriores.",
+    )
+    bonus.add_argument(
+        "--json",
+        action="store_true",
+        help="Emite el resultado como JSON reutilizable en vez de la tabla.",
+    )
+    bonus.set_defaults(func=_bonus)
     return parser
 
 
@@ -503,6 +532,118 @@ def _json_freebet(lote) -> str:
         "colisiones": [
             {"partido": c.partido, "resultado": c.resultado, "casa": c.casa}
             for c in lote.colisiones
+        ],
+    }
+    return json.dumps(datos, ensure_ascii=False, indent=2)
+
+
+def _bonus(args: argparse.Namespace) -> int:
+    try:
+        partidos = storage.cargar(args.archivo)
+        core.verificar_duplicados(partidos)
+        config = core.construir_config_bonus(
+            {
+                "casa": args.casa,
+                "importe": args.importe,
+                "cuota_minima": args.cuota_minima,
+                "fecha_limite": args.fecha_limite,
+            }
+        )
+    except ErrorDatos as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    resultado = core.evaluar_bonus(partidos, config)
+
+    if args.json:
+        print(_json_bonus(resultado))
+    elif not partidos:
+        print("No hay partidos que analizar.")
+    elif not resultado.opciones:
+        print("No hay opciones válidas para este bono.")
+        if resultado.descartes:
+            print(_descartes_texto(resultado.descartes))
+    else:
+        print(_tabla_bonus(resultado))
+
+    _avisar_bonus(resultado)
+    print(RECORDATORIO_CUOTAS, file=sys.stderr)
+    return 0
+
+
+def _descartes_texto(descartes) -> str:
+    lineas = ["Descartados:"]
+    for d in descartes:
+        etiqueta = d.partido if d.resultado is None else f"{d.partido} / {d.resultado}"
+        lineas.append(f"  - {etiqueta}: {d.motivo}")
+    return "\n".join(lineas)
+
+
+def _tabla_bonus(resultado) -> str:
+    config = resultado.config
+    cabecera = (
+        f"Bono: {config.casa} — apuesta {_eur(config.importe)} € "
+        f"(cuota mínima {_eur(config.cuota_minima)})"
+    )
+    if config.fecha_limite is not None:
+        cabecera += f" [límite {config.fecha_limite.date().isoformat()}]"
+    lineas = [cabecera, "", "Opciones (de menor a mayor coste):"]
+    for opcion in resultado.opciones:
+        lineas.append(
+            f"  {opcion.partido} — anclar {opcion.resultado} @{opcion.cuota} en {opcion.casa}  "
+            f"coste {_eur(opcion.coste)} €"
+        )
+        for cobertura in opcion.coberturas:
+            lineas.append(
+                f"      cobertura {cobertura.resultado}  {_eur(cobertura.importe)} € "
+                f"@{cobertura.cuota}  {cobertura.casa}"
+            )
+    if resultado.descartes:
+        lineas.append("")
+        lineas.append(_descartes_texto(resultado.descartes))
+    return "\n".join(lineas)
+
+
+def _avisar_bonus(resultado) -> None:
+    """Avisa por stderr de los partidos sin fecha cuando hay fecha límite (RF-16)."""
+    for nombre in resultado.avisos_sin_fecha:
+        print(
+            f"Aviso: '{nombre}' no tiene fecha; no se pudo comprobar el plazo del bono.",
+            file=sys.stderr,
+        )
+
+
+def _json_bonus(resultado) -> str:
+    """Serializa las opciones del bono como JSON reutilizable (RF-25)."""
+    config = resultado.config
+    datos = {
+        "version": 1,
+        "casa": config.casa,
+        "importe": _eur(config.importe),
+        "cuota_minima": _eur(config.cuota_minima),
+        "opciones": [
+            {
+                "partido": opcion.partido,
+                "resultado": opcion.resultado,
+                "cuota": str(opcion.cuota),
+                "importe": _eur(opcion.importe),
+                "casa": opcion.casa,
+                "coste": _eur(opcion.coste),
+                "cobertura": [
+                    {
+                        "resultado": cobertura.resultado,
+                        "importe": _eur(cobertura.importe),
+                        "cuota": str(cobertura.cuota),
+                        "casa": cobertura.casa,
+                    }
+                    for cobertura in opcion.coberturas
+                ],
+            }
+            for opcion in resultado.opciones
+        ],
+        "descartes": [
+            {"partido": d.partido, "resultado": d.resultado, "motivo": d.motivo}
+            for d in resultado.descartes
         ],
     }
     return json.dumps(datos, ensure_ascii=False, indent=2)
