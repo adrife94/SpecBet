@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.adrian" "\0"
-            VALUE "FileDescription", "betting_app" "\0"
+            VALUE "FileDescription", "SpecBet" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "betting_app" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.adrian. All rights reserved." "\0"
             VALUE "OriginalFilename", "betting_app.exe" "\0"
-            VALUE "ProductName", "betting_app" "\0"
+            VALUE "ProductName", "SpecBet" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END
