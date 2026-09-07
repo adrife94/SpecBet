@@ -60,7 +60,7 @@ class _AppShellState extends State<AppShell> {
               child: Text('1X2', style: mono.copyWith(color: p.panel, fontSize: 12, fontWeight: FontWeight.w700)),
             ),
             const SizedBox(width: 10),
-            const Text('Betting Calculator', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+            const Text('SpecBet', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
           ],
         ),
         actions: [

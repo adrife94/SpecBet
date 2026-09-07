@@ -6,7 +6,7 @@ import 'package:betting_app/main.dart';
 void main() {
   testWidgets('arranca y muestra el título y la navegación', (tester) async {
     await tester.pumpWidget(const BettingApp());
-    expect(find.text('Betting Calculator'), findsOneWidget);
+    expect(find.text('SpecBet'), findsOneWidget);
     expect(find.text('Cuotas'), findsWidgets);
     expect(find.text('Comparador'), findsWidgets);
   });

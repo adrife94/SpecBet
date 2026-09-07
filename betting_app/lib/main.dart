@@ -28,7 +28,7 @@ class _BettingAppState extends State<BettingApp> {
       child: ListenableBuilder(
         listenable: state,
         builder: (context, _) => MaterialApp(
-          title: 'Betting Calculator',
+          title: 'SpecBet',
           debugShowCheckedModeBanner: false,
           theme: buildTheme(false),
           darkTheme: buildTheme(true),
