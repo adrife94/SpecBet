@@ -1,4 +1,4 @@
-# AGENTS.md — habitos-cli
+# AGENTS.md — habits-cli
 
 ## Proyecto
 CLI en Python para registrar hábitos de estudio y calcular rachas de días
