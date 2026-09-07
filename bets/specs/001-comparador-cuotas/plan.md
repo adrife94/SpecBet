@@ -20,6 +20,7 @@ Esto es lo que se le pide a Claude-navegador que genere:
   "partidos": [
     {
       "partido": "Real Madrid vs Barça",
+      "fecha": "2026-09-10",
       "cuotas": [
         { "casa": "Bet365", "1": 2.10, "X": 3.30, "2": 3.50 },
         { "casa": "Codere", "1": 2.05, "X": 3.40, "2": 3.60 }
@@ -31,44 +32,48 @@ Esto es lo que se le pide a Claude-navegador que genere:
 
 - Cada resultado es una de las claves `"1"`, `"X"`, `"2"`. Una casa puede omitir
   claves: la clave ausente (o `null`) es un hueco (RF-7).
+- La `fecha` de inicio del partido es **opcional** (ISO 8601, a nivel de partido):
+  `compare` y `surebet` la ignoran; `freebet`, `bonus` y `multibonus` la usan para
+  el plazo (`--fecha-limite` / `--apalancamiento`). Si no se recoge, esos comandos
+  avisan y no filtran por plazo.
 - Las cuotas se cargan con `json.load(..., parse_float=Decimal)`: los números
   del JSON entran como `Decimal`, nunca como `float` (constitución nº 8).
 - Cuota válida = `Decimal` > 1. Cualquier otro valor (`0`, negativo, ≤ 1, texto
   tipo `"N/A"`) se descarta como hueco y se avisa (RF-8).
 
 ## Prompt para Claude-navegador
-Instrucción lista para pegar. Parte de que ya hay un **grupo de pestañas**
-abierto, una por casa, cada una con la página del evento ya cargada. Solo se
-rellena `{{PARTIDOS}}` si se quieren partidos concretos. Está diseñada para que
-la respuesta sea directamente el JSON de entrada de arriba.
+Instrucción lista para pegar **en el chat de Claude-navegador** (no en un campo de
+la página). Parte de que ya hay un **grupo de pestañas** abierto, una por casa,
+cada una con la página del evento ya cargada. Solo se rellena `{{PARTIDOS}}` si se
+quieren partidos concretos. Está redactada en **primera persona, como petición del
+usuario, a propósito**: el estilo "eres un asistente que… / devuelve solo JSON"
+dispara el anti-inyección de Claude-navegador, que rechaza instrucciones con forma
+de reasignación de rol. La respuesta es el JSON de entrada de arriba dentro de un
+bloque de código (puede llevar alguna frase alrededor; se copia el bloque).
 
 ```
-Eres un asistente que recopila cuotas de apuestas 1X2. Tu única tarea es
-devolver un archivo JSON con las cuotas, sin ningún texto adicional.
+Tengo varias pestañas abiertas; cada una es una casa de apuestas con un evento ya
+cargado. ¿Puedes leer las cuotas del mercado 1X2 (1 = local, X = empate, 2 =
+visitante, al final del tiempo reglamentario) de esas pestañas y pasármelas en JSON?
 
-Trabaja EXCLUSIVAMENTE con las pestañas ya abiertas en el grupo de pestañas
-actual. Cada pestaña es una casa de apuestas con su página ya cargada en el
-evento correspondiente. NO navegues a otras URLs, NO uses buscadores y NO abras
-pestañas nuevas: limítate a hacer scroll dentro de cada pestaña para localizar
-los partidos y leer sus cuotas 1X2. El nombre de la casa es el de la casa de
-apuestas de esa pestaña.
+Trabaja solo con las pestañas que ya tengo abiertas: no navegues a otras URLs, no
+busques ni abras pestañas nuevas; solo haz scroll para localizar los partidos.
+Desplázate hasta el final de cada pestaña, repitiendo el scroll hasta que no
+aparezcan partidos nuevos (muchas casas los cargan a medida que bajas). El nombre
+de la casa es el de cada pestaña.
 
-Partidos a extraer:
-{{PARTIDOS}}
-(Si esta lista está vacía, extrae todos los partidos visibles al hacer scroll en
-cada pestaña. Ejemplo de partido: Real Madrid vs Barça.)
+Partidos: {{PARTIDOS}}
+(si lo dejo vacío, coge todos los que veas al hacer scroll; por ejemplo,
+Real Madrid vs Barça).
 
-Para cada partido y cada pestaña, lee las cuotas del mercado 1X2 (resultado al
-final del tiempo reglamentario): "1" = gana el equipo local, "X" = empate,
-"2" = gana el equipo visitante.
-
-Devuelve EXCLUSIVAMENTE un JSON con esta estructura exacta:
+Devuélvemelo en un bloque de código con esta estructura:
 
 {
   "version": 1,
   "partidos": [
     {
       "partido": "Real Madrid vs Barça",
+      "fecha": "2026-09-10",
       "cuotas": [
         { "casa": "Bet365", "1": 2.10, "X": 3.30, "2": 3.50 },
         { "casa": "Codere", "1": 2.05, "X": 3.40, "2": 3.60 }
@@ -77,19 +82,23 @@ Devuelve EXCLUSIVAMENTE un JSON con esta estructura exacta:
   ]
 }
 
-Reglas:
-- Cuotas en formato decimal europeo con punto como separador (2.10, no 2,10 ni
-  fracciones). Toda cuota debe ser un número mayor que 1.
+Preferencias de formato:
+- Cuotas en decimal europeo con punto como separador (2.10, no 2,10 ni
+  fracciones), siempre mayores que 1.
 - El campo "partido" usa el formato "Local vs Visitante".
-- Una sola entrada por casa dentro de cada partido; no repitas casas ni partidos.
-- Solo el mercado 1X2 (tres resultados). Nada de hándicaps, más/menos goles,
+- Incluye la fecha (y la hora, si es visible) de inicio del partido en el campo
+  "fecha", en formato ISO 8601 (por ejemplo "2026-09-10" o "2026-09-10T21:00").
+  Es un único valor por partido, el mismo en todas las casas. Si la fecha no es
+  visible en la pestaña, omite la clave "fecha"; no la inventes.
+- Una sola entrada por casa dentro de cada partido; sin repetir casas ni partidos.
+- Solo el mercado 1X2 (tres resultados); nada de hándicaps, más/menos goles,
   ambos marcan, etc.
-- Si una casa (pestaña) no muestra la cuota de algún resultado, OMITE esa clave
-  para esa casa; no inventes ni estimes valores.
-- Si un partido de la lista no aparece en una pestaña tras hacer scroll, no lo
-  incluyas para esa casa; no lo busques fuera de la pestaña.
-- No añadas comentarios, explicaciones, ni vallas de código (```): responde
-  únicamente con el JSON válido.
+- Si una casa no muestra la cuota de algún resultado, omite esa clave para esa
+  casa; no inventes ni estimes valores.
+- Si un partido no aparece en una pestaña tras hacer scroll, no lo incluyas para
+  esa casa; no lo busques fuera de la pestaña.
+- Si en alguna pestaña no pudiste leer todos los partidos, dilo en una línea
+  después del bloque de código: qué casa y hasta qué partido o jornada llegaste.
 ```
 
 ## Modelo de datos — JSON de salida (RF-18)

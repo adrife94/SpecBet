@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "partidos": [
+    {
+      "partido": "Real Madrid vs Barça",
+      "fecha": "2026-09-12T21:00",
+      "cuotas": [
+        { "casa": "Bet365",  "1": 2.00, "X": 3.40, "2": 3.90 },
+        { "casa": "Winamax", "1": 2.10, "X": 3.30, "2": 4.00 },
+        { "casa": "Codere",  "1": 2.05, "X": 3.45, "2": 3.80 }
+      ]
+    },
+    {
+      "partido": "Sevilla vs Betis",
+      "fecha": "2026-09-13T18:30",
+      "cuotas": [
+        { "casa": "Bet365",  "1": 2.60, "X": 3.30, "2": 2.80 },
+        { "casa": "Winamax", "1": 2.50, "X": 3.35, "2": 2.90 },
+        { "casa": "Codere",  "1": 2.55, "X": 3.40, "2": 2.75 }
+      ]
+    }
+  ]
+}

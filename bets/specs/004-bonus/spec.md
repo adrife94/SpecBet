@@ -131,6 +131,13 @@ su cuenta: solo lee, calcula y muestra. Cubre el caso sin máximo de conversión
 - Combinar varios bonos a la vez (p. ej. cubrir cada uno de los tres resultados
   con el bono de otra casa): la cobertura es siempre con dinero normal; el uso
   simultáneo de bonos queda fuera.
+- La operativa de **apalancamiento** (aparcar el saldo real en una apuesta a futuro
+  para poder gastar el saldo del bono, ya que la casa gasta el real primero) es una
+  **precondición operativa** de "apostar con el bono", no un cálculo de esta
+  herramienta: la apuesta de apalancamiento se resuelve con `surebet`. Su plazo (que
+  el partido de bono se salde antes que el apalancamiento) tampoco se comprueba aquí;
+  la 004 solo controla la caducidad del bono (`--fecha-limite`). El filtrado por
+  apalancamiento está en `multibonus` (spec 006).
 - Freebets (stake no retornado): spec 003.
 - Cobertura mediante casas de intercambio (lay en exchange).
 - Mercados que no sean 1X2 de tres resultados.
