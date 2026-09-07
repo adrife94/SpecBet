@@ -1,8 +1,10 @@
-# betting-cli
+# SpecBet
 
-Herramienta de apoyo a decisiones de apuestas deportivas, construida con
-Spec-Driven Development (SDD). No apuesta ni obtiene cuotas: es una calculadora
-que lee las cuotas de un archivo JSON y hace los cálculos.
+Calculadora de decisiones de apuestas deportivas 1X2 (comparador de cuotas,
+surebets, freebets y bonos), construida con Spec-Driven Development (SDD). No
+apuesta ni obtiene cuotas: es una calculadora que lee las cuotas de un archivo
+JSON y hace los cálculos. Este directorio es la CLI en Python; hay además una app
+Flutter multiplataforma en `../betting_app/`.
 
 ## Requisitos
 - Python 3.11+

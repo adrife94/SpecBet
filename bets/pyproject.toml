@@ -1,7 +1,7 @@
 [project]
-name = "betting-cli"
+name = "specbet"
 version = "0.1.0"
-description = "Herramienta de apoyo a decisiones de apuestas deportivas (SDD)."
+description = "Calculadora de decisiones de apuestas deportivas 1X2 (comparador de cuotas, surebets, freebets y bonos), con CLI en Python y app Flutter, construida con Spec-Driven Development (SDD)."
 requires-python = ">=3.11"
 
 [tool.pytest.ini_options]
