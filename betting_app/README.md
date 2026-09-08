@@ -1,5 +1,7 @@
 # SpecBet — app Flutter
 
+🌐 **Web:** https://specbet.netlify.app/ (acceso privado — solo miembros del equipo)
+
 Frontend gráfico multiplataforma de **SpecBet**: calculadora de decisiones de
 apuestas deportivas 1X2 construida con **Spec-Driven Development (SDD)**. Es el
 mismo dominio que la [CLI en Python](../bets/) (comparador, surebet, freebet,
