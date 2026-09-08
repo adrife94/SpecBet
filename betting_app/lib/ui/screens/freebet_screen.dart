@@ -83,8 +83,8 @@ class _FreebetScreenState extends State<FreebetScreen> {
           icon: pa.tipo == 'gratis' ? '🎟' : (pa.promo ? '🎯' : '💶'),
           casa: pa.casa,
           kind: pa.tipo == 'gratis'
-              ? 'apuesta del bono (gratis)'
-              : (pa.promo ? 'cobertura promo · ventaja de 2 goles' : 'cobertura (dinero real)'),
+              ? 'Apuesta del bono (gratis)'
+              : (pa.promo ? 'cobertura promo · ventaja de 2 goles' : 'Cobertura (dinero real)'),
           odds: cuotaStr(pa.cuota),
           amount: eur(pa.importe),
         ),

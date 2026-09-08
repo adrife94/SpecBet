@@ -86,6 +86,7 @@ class _AppShellState extends State<AppShell> {
               builder: (context, constraints) {
                 if (constraints.maxWidth >= 760) {
                   return Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       AppSidebar(selected: _sel, onSelect: _select, items: _items, mostrarPromo: promoAplica),
                       VerticalDivider(width: 1, color: p.line),
