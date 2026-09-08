@@ -2,6 +2,7 @@ import 'package:decimal/decimal.dart';
 
 import 'money.dart';
 import 'odds.dart';
+import 'promo.dart';
 
 /// Apuesta de menor coste para cumplir el rollover de un bono. Port de
 /// `core.calcular_opcion` / `_opciones_de_partido` / `evaluar_bonus` (sin plazo).
@@ -11,7 +12,11 @@ class CoberturaBonus {
   final Decimal importe;
   final Decimal cuota;
   final String casa;
-  CoberturaBonus(this.resultado, this.importe, this.cuota, this.casa);
+
+  /// `true` si es una cobertura de ganar (1/2) reposicionada en una casa de la
+  /// promo «ventaja de 2 goles» (RF-21).
+  final bool promo;
+  CoberturaBonus(this.resultado, this.importe, this.cuota, this.casa, {this.promo = false});
 }
 
 class OpcionBonus {
@@ -31,6 +36,7 @@ List<OpcionBonus> _opcionesDePartido(
   required String casaBono,
   required Decimal importe,
   required Decimal cuotaMinima,
+  FiltroPromo? promo,
 }) {
   final entrada = p.casa(casaBono);
   if (entrada == null) return const [];
@@ -45,14 +51,25 @@ List<OpcionBonus> _opcionesDePartido(
     var cubrible = true;
     for (final otro in resultados) {
       if (otro == r) continue;
-      final cob = mejorCuota(p, otro, excluir: excl);
+      // Con promo, la cobertura de una pata de ganar (1/2) va a la mejor casa de
+      // la promo distinta de la del bono (RF-21); si no la cotiza, la normal.
+      ({Decimal cuota, String casa})? cob;
+      var esPromo = false;
+      if (promo != null && (otro == '1' || otro == '2')) {
+        final pos = posicionPromoCobertura(p, otro, promo, casaBono);
+        if (pos != null) {
+          cob = pos;
+          esPromo = true;
+        }
+      }
+      cob ??= mejorCuota(p, otro, excluir: excl);
       if (cob == null) {
         cubrible = false;
         break;
       }
       final stake = div(retorno, cob.cuota);
       totalCob += stake;
-      coberturas.add(CoberturaBonus(otro, stake, cob.cuota, cob.casa));
+      coberturas.add(CoberturaBonus(otro, stake, cob.cuota, cob.casa, promo: esPromo));
     }
     if (!cubrible) continue;
     final coste = (importe + totalCob) - retorno;
@@ -68,10 +85,12 @@ List<OpcionBonus> opcionesBonus(
   required String casaBono,
   required Decimal importe,
   required Decimal cuotaMinima,
+  FiltroPromo? promo,
 }) {
   final out = <OpcionBonus>[];
   for (final p in partidos) {
-    out.addAll(_opcionesDePartido(p, casaBono: casaBono, importe: importe, cuotaMinima: cuotaMinima));
+    out.addAll(_opcionesDePartido(p,
+        casaBono: casaBono, importe: importe, cuotaMinima: cuotaMinima, promo: promo));
   }
   out.sort((a, b) => a.coste.compareTo(b.coste));
   return out;

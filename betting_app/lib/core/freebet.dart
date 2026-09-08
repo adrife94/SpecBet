@@ -2,6 +2,7 @@ import 'package:decimal/decimal.dart';
 
 import 'money.dart';
 import 'odds.dart';
+import 'promo.dart';
 
 /// Conversión de una freebet (stake no retornado). Port de
 /// `core.calcular_jugada` / `mejor_jugada`.
@@ -12,7 +13,11 @@ class PataFreebet {
   final Decimal importe;
   final Decimal cuota;
   final String casa;
-  PataFreebet(this.tipo, this.resultado, this.importe, this.cuota, this.casa);
+
+  /// `true` si es una cobertura de ganar (1/2) reposicionada en una casa de la
+  /// promo «ventaja de 2 goles» (RF-20).
+  final bool promo;
+  PataFreebet(this.tipo, this.resultado, this.importe, this.cuota, this.casa, {this.promo = false});
 }
 
 class Jugada {
@@ -31,6 +36,7 @@ Jugada? _jugadaParaResultado(
   required Decimal importe,
   Decimal? cuotaMin,
   Decimal? cuotaMax,
+  FiltroPromo? promo,
 }) {
   final entradaBono = p.casa(casaBono);
   if (entradaBono == null) return null;
@@ -44,11 +50,22 @@ Jugada? _jugadaParaResultado(
   var invCobertura = cero;
   for (final r in resultados) {
     if (r == resultadoGratis) continue;
-    final cob = mejorCuota(p, r, excluir: {normalizar(casaBono)});
+    // Con promo, la cobertura de una pata de ganar (1/2) se coloca en la mejor
+    // casa de la promo distinta de la del bono (RF-20); si no la cotiza, normal.
+    ({Decimal cuota, String casa})? cob;
+    var esPromo = false;
+    if (promo != null && (r == '1' || r == '2')) {
+      final pos = posicionPromoCobertura(p, r, promo, casaBono);
+      if (pos != null) {
+        cob = pos;
+        esPromo = true;
+      }
+    }
+    cob ??= mejorCuota(p, r, excluir: {normalizar(casaBono)});
     if (cob == null) return null; // no cubrible en casa distinta
     final stake = div(retorno, cob.cuota);
     invCobertura += stake;
-    patas.add(PataFreebet('cobertura', r, stake, cob.cuota, cob.casa));
+    patas.add(PataFreebet('cobertura', r, stake, cob.cuota, cob.casa, promo: esPromo));
   }
   final valor = retorno - invCobertura;
   return Jugada(p.nombre, resultadoGratis, patas, valor, div(valor, importe));
@@ -63,8 +80,11 @@ Jugada? mejorJugada(
   Decimal? cuotaMin,
   Decimal? cuotaMax,
   String? resultadoFijo,
+  FiltroPromo? promo,
 }) {
   final rs = resultadoFijo != null ? [resultadoFijo] : resultados;
+  // El resultado gratis se elige sin promo (por valor base); luego, si hay
+  // filtro, se recalcula esa jugada reposicionando las coberturas de ganar.
   Jugada? mejor;
   for (final r in rs) {
     final j = _jugadaParaResultado(p, r,
@@ -72,7 +92,10 @@ Jugada? mejorJugada(
     if (j == null) continue;
     if (mejor == null || j.valorExtraido > mejor.valorExtraido) mejor = j;
   }
-  return mejor;
+  if (mejor == null || promo == null) return mejor;
+  return _jugadaParaResultado(p, mejor.resultadoGratis,
+          casaBono: casaBono, importe: importe, cuotaMin: cuotaMin, cuotaMax: cuotaMax, promo: promo) ??
+      mejor;
 }
 
 /// Evalúa la freebet en todos los partidos y ordena por valor extraído
@@ -83,10 +106,12 @@ List<Jugada> freebetJugadas(
   required Decimal importe,
   Decimal? cuotaMin,
   Decimal? cuotaMax,
+  FiltroPromo? promo,
 }) {
   final out = <Jugada>[];
   for (final p in partidos) {
-    final j = mejorJugada(p, casaBono: casaBono, importe: importe, cuotaMin: cuotaMin, cuotaMax: cuotaMax);
+    final j = mejorJugada(p,
+        casaBono: casaBono, importe: importe, cuotaMin: cuotaMin, cuotaMax: cuotaMax, promo: promo);
     if (j != null) out.add(j);
   }
   out.sort((a, b) => b.valorExtraido.compareTo(a.valorExtraido));

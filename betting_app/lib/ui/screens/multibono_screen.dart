@@ -8,7 +8,6 @@ import '../../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/bet_slip.dart';
 import '../widgets/form_bits.dart';
-import '../widgets/promo_panel.dart';
 
 class MultibonoScreen extends StatefulWidget {
   const MultibonoScreen({super.key});
@@ -51,7 +50,7 @@ class _MultibonoScreenState extends State<MultibonoScreen> {
     if (valido && bonos.map((b) => normalizar(b.casa)).toSet().length != bonos.length) {
       valido = false;
     }
-    final ops = valido ? evaluarMultibono(state.partidos, bonos) : <OpcionMulti>[];
+    final ops = valido ? evaluarMultibono(state.partidos, bonos, promo: state.filtroPromo) : <OpcionMulti>[];
 
     return ListView(padding: const EdgeInsets.all(18), children: [
       screenTitle(context, 'Multibono',
@@ -100,13 +99,13 @@ class _MultibonoScreenState extends State<MultibonoScreen> {
       else
         for (var i = 0; i < ops.length; i++)
           Padding(padding: const EdgeInsets.only(bottom: 12), child: _slip(ops[i], i == 0)),
-      PromoPanel(importeRef: bonos.isNotEmpty ? bonos.first.importe : Decimal.fromInt(100)),
+      pieAviso(context),
     ]);
   }
 
   Widget _slip(OpcionMulti o, bool destacada) => BetSlip(
         title: o.partido,
-        sub: '${o.patas.length} patas',
+        sub: '${o.patas.length} apuestas',
         destacada: destacada,
         destacadaTono: 'blue',
         badges: [
@@ -119,10 +118,12 @@ class _MultibonoScreenState extends State<MultibonoScreen> {
           for (final l in o.patas)
             SlipLeg(
               chip: l.resultado,
-              chipTono: l.tipo == 'bono' ? 'blue' : 'gray',
-              icon: l.tipo == 'bono' ? '🎟' : '💶',
+              chipTono: l.tipo == 'bono' || l.promo ? 'blue' : 'gray',
+              icon: l.tipo == 'bono' ? '🎟' : (l.promo ? '🎯' : '💶'),
               casa: l.casa,
-              kind: l.tipo == 'bono' ? 'bono' : 'relleno (dinero real)',
+              kind: l.tipo == 'bono'
+                  ? 'bono'
+                  : (l.promo ? 'relleno promo · ventaja de 2 goles' : 'relleno (dinero real)'),
               odds: cuotaStr(l.cuota),
               amount: eur(l.importe),
             ),

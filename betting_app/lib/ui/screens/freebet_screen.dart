@@ -7,7 +7,6 @@ import '../../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/bet_slip.dart';
 import '../widgets/form_bits.dart';
-import '../widgets/promo_panel.dart';
 
 class FreebetScreen extends StatefulWidget {
   const FreebetScreen({super.key});
@@ -39,16 +38,20 @@ class _FreebetScreenState extends State<FreebetScreen> {
     final valido = F != null && F > Decimal.fromInt(0) && sel != null;
     final jugadas = valido
         ? freebetJugadas(state.partidos,
-            casaBono: sel, importe: F, cuotaMin: parseDec(minC.text), cuotaMax: parseDec(maxC.text))
+            casaBono: sel,
+            importe: F,
+            cuotaMin: parseDec(minC.text),
+            cuotaMax: parseDec(maxC.text),
+            promo: state.filtroPromo)
         : <Jugada>[];
 
     return ListView(padding: const EdgeInsets.all(18), children: [
       screenTitle(context, 'Freebet',
-          'Convierte una apuesta gratis: pata gratis (bono) + dos coberturas igualadas.'),
+          'Convierte una apuesta gratis: la apuesta del bono + dos coberturas igualadas.'),
       const SizedBox(height: 14),
       formCard(
         context,
-        note: 'La pata gratis no devuelve el importe: solo cuenta la ganancia.',
+        note: 'La apuesta del bono no devuelve el importe: solo cuenta la ganancia.',
         child: Wrap(spacing: 12, runSpacing: 12, children: [
           labeledField(context, 'Casa del bono', _casaDropdown(casas, sel, (v) => setState(() => casa = v))),
           labeledField(context, 'Importe (€)', _num(importe)),
@@ -67,33 +70,38 @@ class _FreebetScreenState extends State<FreebetScreen> {
             padding: const EdgeInsets.only(bottom: 12),
             child: _slip(jugadas[i], i == 0),
           ),
-      PromoPanel(importeRef: F ?? Decimal.fromInt(10)),
+      pieAviso(context),
     ]);
   }
 
-  Widget _slip(Jugada j, bool destacada) => BetSlip(
-        title: j.partido,
-        sub: 'Gratis al ${j.resultadoGratis} en ${j.patas.first.casa}',
-        destacada: destacada,
-        destacadaTono: 'green',
-        badges: [
-          SlipBadge(eur(j.valorExtraido), label: 'Valor', tono: 'green'),
-          SlipBadge(pct(j.conversion * Decimal.fromInt(100)),
-              label: 'Conversión', tono: j.conversion >= Decimal.parse('0.6') ? 'green' : 'amber'),
-        ],
-        legs: [
-          for (final pa in j.patas)
-            SlipLeg(
-              chip: pa.resultado,
-              chipTono: pa.tipo == 'gratis' ? 'blue' : 'gray',
-              icon: pa.tipo == 'gratis' ? '🎟' : '💶',
-              casa: pa.casa,
-              kind: pa.tipo == 'gratis' ? 'pata gratis (bono)' : 'cobertura (dinero real)',
-              odds: cuotaStr(pa.cuota),
-              amount: eur(pa.importe),
-            ),
-        ],
-      );
+  Widget _slip(Jugada j, bool destacada) {
+    final legs = [
+      for (final pa in j.patas)
+        SlipLeg(
+          chip: pa.resultado,
+          chipTono: pa.tipo == 'gratis' || pa.promo ? 'blue' : 'gray',
+          icon: pa.tipo == 'gratis' ? '🎟' : (pa.promo ? '🎯' : '💶'),
+          casa: pa.casa,
+          kind: pa.tipo == 'gratis'
+              ? 'apuesta del bono (gratis)'
+              : (pa.promo ? 'cobertura promo · ventaja de 2 goles' : 'cobertura (dinero real)'),
+          odds: cuotaStr(pa.cuota),
+          amount: eur(pa.importe),
+        ),
+    ]..sort(compararPorResultado);
+    return BetSlip(
+      title: j.partido,
+      sub: 'Gratis al ${j.resultadoGratis} en ${j.patas.first.casa}',
+      destacada: destacada,
+      destacadaTono: 'green',
+      badges: [
+        SlipBadge(eur(j.valorExtraido), label: 'Valor', tono: 'green'),
+        SlipBadge(pct(j.conversion * Decimal.fromInt(100)),
+            label: 'Conversión', tono: j.conversion >= Decimal.parse('0.6') ? 'green' : 'amber'),
+      ],
+      legs: legs,
+    );
+  }
 
   Widget _casaDropdown(List<String> casas, String? sel, ValueChanged<String?> onCh) => SizedBox(
         width: 170,

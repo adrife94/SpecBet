@@ -2,6 +2,7 @@ import 'package:decimal/decimal.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:betting_app/core/odds.dart';
+import 'package:betting_app/core/promo.dart';
 import 'package:betting_app/core/surebet.dart';
 
 void main() {
@@ -41,5 +42,38 @@ void main() {
   test('una sola casa => no calculable', () {
     final p = Partido('Solo', null, [casa('A', '2.70', '3.60', '3.20')]);
     expect(repartirPartido(p, d('100')).noCalculable, isTrue);
+  });
+
+  test('con filtro promo, las patas 1 y 2 se colocan en la casa de la promo', () {
+    // Winamax no es la mejor en 1 ni en 2, pero el filtro la fuerza ahí.
+    final p = Partido('A vs B', null, [
+      casa('SpeedyBet', '2.70', '3.60', '3.20'),
+      casa('Winamax', '2.50', '3.55', '3.00'),
+    ]);
+    final filtro = construirFiltroPromo(['Winamax']);
+    final r = repartirPartido(p, d('100'), promo: filtro);
+
+    // 1 y 2 usan Winamax (reposicionadas); la X sigue en la mejor global.
+    expect(r.patas!['1']!.casas, ['Winamax']);
+    expect(r.patas!['1']!.cuota, d('2.50'));
+    expect(r.patas!['1']!.promo, isTrue);
+    expect(r.patas!['2']!.casas, ['Winamax']);
+    expect(r.patas!['2']!.promo, isTrue);
+    expect(r.patas!['X']!.promo, isFalse);
+    expect(r.patas!['X']!.casas, ['SpeedyBet']);
+  });
+
+  test('sin casa de promo que cotice la pata, se deja su mejor cuota (RF-10)', () {
+    final p = Partido('A vs B', null, [
+      casa('SpeedyBet', '2.70', '3.60', '3.20'),
+      CuotaCasa('Winamax', {'1': null, 'X': d('3.55'), '2': d('3.00')}),
+    ]);
+    final r = repartirPartido(p, d('100'), promo: construirFiltroPromo(['Winamax']));
+    // Winamax no cotiza el 1 => se queda la mejor global, sin marca de promo.
+    expect(r.patas!['1']!.casas, ['SpeedyBet']);
+    expect(r.patas!['1']!.promo, isFalse);
+    // el 2 sí se reposiciona.
+    expect(r.patas!['2']!.casas, ['Winamax']);
+    expect(r.patas!['2']!.promo, isTrue);
   });
 }

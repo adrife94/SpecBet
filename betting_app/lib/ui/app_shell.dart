@@ -5,6 +5,7 @@ import 'screens/bonus_screen.dart';
 import 'screens/comparador_screen.dart';
 import 'screens/cuotas_screen.dart';
 import 'screens/freebet_screen.dart';
+import 'screens/guia_screen.dart';
 import 'screens/multibono_screen.dart';
 import 'screens/surebet_screen.dart';
 import 'theme.dart';
@@ -26,9 +27,13 @@ class _AppShellState extends State<AppShell> {
     (label: 'Comparador', icon: Icons.leaderboard_outlined),
     (label: 'Surebet', icon: Icons.balance_outlined),
     (label: 'Freebet', icon: Icons.card_giftcard_outlined),
-    (label: 'Bonus', icon: Icons.savings_outlined),
+    (label: 'Bono', icon: Icons.savings_outlined),
     (label: 'Multibono', icon: Icons.account_tree_outlined),
+    (label: 'Guía', icon: Icons.help_outline),
   ];
+
+  /// El filtro promo solo aplica a las calculadoras que colocan apuestas a ganar.
+  static const _promoTabs = {'Surebet', 'Freebet', 'Bono', 'Multibono'};
 
   Widget _screen() => switch (_sel) {
         0 => const CuotasScreen(),
@@ -36,13 +41,15 @@ class _AppShellState extends State<AppShell> {
         2 => const SurebetScreen(),
         3 => const FreebetScreen(),
         4 => const BonusScreen(),
-        _ => const MultibonoScreen(),
+        5 => const MultibonoScreen(),
+        _ => const GuiaScreen(),
       };
 
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final p = Theme.of(context).extension<AppPalette>()!;
+    final promoAplica = _promoTabs.contains(_items[_sel].label);
 
     return Scaffold(
       appBar: AppBar(
@@ -74,41 +81,13 @@ class _AppShellState extends State<AppShell> {
       ),
       body: Column(
         children: [
-          Container(
-            width: double.infinity,
-            color: p.amberBg,
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7),
-            child: Text(
-              'Las cuotas caducan. Verifícalas en la casa justo antes de apostar; esta app no consulta cuotas en vivo.',
-              style: TextStyle(color: p.amberFg, fontSize: 12),
-            ),
-          ),
-          Container(
-            width: double.infinity,
-            color: p.panel2,
-            padding: const EdgeInsets.fromLTRB(18, 4, 8, 4),
-            child: Row(
-              children: [
-                Icon(Icons.description_outlined, size: 15, color: p.ink3),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    'Cuotas: ${state.archivo} · ${state.sello}',
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 12, color: p.ink2),
-                  ),
-                ),
-                TextButton(onPressed: state.verificar, child: const Text('Verificar cuotas')),
-              ],
-            ),
-          ),
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
                 if (constraints.maxWidth >= 760) {
                   return Row(
                     children: [
-                      AppSidebar(selected: _sel, onSelect: _select, items: _items),
+                      AppSidebar(selected: _sel, onSelect: _select, items: _items, mostrarPromo: promoAplica),
                       VerticalDivider(width: 1, color: p.line),
                       Expanded(child: _screen()),
                     ],
@@ -118,13 +97,15 @@ class _AppShellState extends State<AppShell> {
                   children: [
                     TopNav(selected: _sel, onSelect: _select, items: _items),
                     Divider(height: 1, color: p.line),
-                    ExpansionTile(
-                      title: const Text('Filtro promo · ventaja de 2 goles',
-                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                      childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                      children: const [PromoControls()],
-                    ),
-                    Divider(height: 1, color: p.line),
+                    if (promoAplica) ...[
+                      ExpansionTile(
+                        title: const Text('Filtro promo · ventaja de 2 goles',
+                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                        children: const [PromoControls()],
+                      ),
+                      Divider(height: 1, color: p.line),
+                    ],
                     Expanded(child: _screen()),
                   ],
                 );

@@ -7,7 +7,6 @@ import '../../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/bet_slip.dart';
 import '../widgets/form_bits.dart';
-import '../widgets/promo_panel.dart';
 
 class SurebetScreen extends StatefulWidget {
   const SurebetScreen({super.key});
@@ -27,9 +26,10 @@ class _SurebetScreenState extends State<SurebetScreen> {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
+    final filtro = state.filtroPromo;
     final inv = parseDec(invCtrl.text);
     final valido = inv != null && inv > Decimal.fromInt(0);
-    final repartos = valido ? repartir(state.partidos, inv) : <Reparto>[];
+    final repartos = valido ? repartir(state.partidos, inv, promo: filtro) : <Reparto>[];
 
     return ListView(padding: const EdgeInsets.all(18), children: [
       screenTitle(context, 'Surebet',
@@ -37,7 +37,9 @@ class _SurebetScreenState extends State<SurebetScreen> {
       const SizedBox(height: 14),
       formCard(
         context,
-        note: 'El reparto iguala el retorno en los tres resultados.',
+        note: filtro != null
+            ? 'Filtro promo activo: las patas de ganar (1 y 2) se colocan en tus casas con promo.'
+            : 'El reparto iguala el retorno en los tres resultados.',
         child: labeledField(
           context,
           'Inversión (€)',
@@ -67,25 +69,38 @@ class _SurebetScreenState extends State<SurebetScreen> {
                     destacada: r.surebet,
                     destacadaTono: 'green',
                     badges: [
-                      SlipBadge(r.surebet ? 'Surebet' : 'Pérdida', tono: r.surebet ? 'green' : 'red'),
+                      if (r.surebet) const SlipBadge('Surebet', tono: 'green'),
+                      if (r.payout != null)
+                        SlipBadge(pct(r.payout!), tono: r.surebet ? 'green' : 'red'),
                       SlipBadge('${r.surebet ? '+' : ''}${eur(r.beneficio!)}',
-                          label: 'Beneficio', tono: r.surebet ? 'green' : 'red'),
+                          tono: r.surebet ? 'green' : 'red'),
                     ],
                     legs: [
                       for (final k in ['1', 'X', '2'])
                         SlipLeg(
                           chip: k,
+                          chipTono: r.patas![k]!.promo ? 'blue' : 'gray',
+                          icon: r.patas![k]!.promo ? '🎯' : null,
                           casa: r.patas![k]!.casas.join('/'),
+                          kind: r.patas![k]!.promo ? 'promo · ventaja de 2 goles' : null,
                           odds: cuotaStr(r.patas![k]!.cuota),
                           amount: eur(r.patas![k]!.importe),
                         ),
                     ],
-                    footer: 'Retorno ${eur(r.retorno!)}'
-                        '${r.payout != null ? ' · payout ${pct(r.payout!)}' : ''}',
+                    footer: _footer(r),
                   ),
           ),
-      PromoPanel(importeRef: inv ?? Decimal.fromInt(100)),
+      pieAviso(context),
     ]);
+  }
+
+  /// Pie del boleto: retorno y, si hay patas reposicionadas por promo, el
+  /// windfall (cada pata asegurada devuelve su importe × cuota = el retorno).
+  String _footer(Reparto r) {
+    final base = 'Retorno ${eur(r.retorno!)}';
+    final hayPromo = r.patas!.values.any((pa) => pa.promo);
+    if (!hayPromo) return base;
+    return '$base · si salta la promo, +${eur(r.retorno!)} extra por cada pata asegurada';
   }
 
   Widget _incompleto(BuildContext context, Reparto r) {

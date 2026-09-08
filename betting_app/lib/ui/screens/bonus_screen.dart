@@ -7,7 +7,6 @@ import '../../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/bet_slip.dart';
 import '../widgets/form_bits.dart';
-import '../widgets/promo_panel.dart';
 
 class BonusScreen extends StatefulWidget {
   const BonusScreen({super.key});
@@ -36,11 +35,13 @@ class _BonusScreenState extends State<BonusScreen> {
     final imp = parseDec(importe.text);
     final min = parseDec(minC.text);
     final valido = imp != null && imp > Decimal.fromInt(0) && min != null && min > Decimal.fromInt(1) && sel != null;
-    final ops = valido ? opcionesBonus(state.partidos, casaBono: sel, importe: imp, cuotaMinima: min) : <OpcionBonus>[];
+    final ops = valido
+        ? opcionesBonus(state.partidos, casaBono: sel, importe: imp, cuotaMinima: min, promo: state.filtroPromo)
+        : <OpcionBonus>[];
 
     return ListView(padding: const EdgeInsets.all(18), children: [
-      screenTitle(context, 'Bonus',
-          'Cumple el rollover al menor coste: pata anclada en la casa del bono + coberturas.'),
+      screenTitle(context, 'Bono',
+          'Cumple el rollover al menor coste: apuesta anclada en la casa del bono + coberturas.'),
       const SizedBox(height: 14),
       formCard(
         context,
@@ -59,12 +60,33 @@ class _BonusScreenState extends State<BonusScreen> {
       else
         for (var i = 0; i < ops.length; i++)
           Padding(padding: const EdgeInsets.only(bottom: 12), child: _slip(ops[i], i == 0)),
-      PromoPanel(importeRef: imp ?? Decimal.fromInt(20)),
+      pieAviso(context),
     ]);
   }
 
   Widget _slip(OpcionBonus o, bool destacada) {
     final desembolso = o.coberturas.fold(o.importe, (a, c) => a + c.importe);
+    final legs = [
+      SlipLeg(
+        chip: o.resultado,
+        chipTono: 'blue',
+        icon: '💶',
+        casa: o.casa,
+        kind: 'apuesta anclada (requisito)',
+        odds: cuotaStr(o.cuota),
+        amount: eur(o.importe),
+      ),
+      for (final c in o.coberturas)
+        SlipLeg(
+          chip: c.resultado,
+          chipTono: c.promo ? 'blue' : 'gray',
+          icon: c.promo ? '🎯' : '💶',
+          casa: c.casa,
+          kind: c.promo ? 'cobertura promo · ventaja de 2 goles' : 'cobertura (dinero real)',
+          odds: cuotaStr(c.cuota),
+          amount: eur(c.importe),
+        ),
+    ]..sort(compararPorResultado);
     return BetSlip(
       title: o.partido,
       sub: 'Anclada al ${o.resultado} en ${o.casa}',
@@ -74,26 +96,7 @@ class _BonusScreenState extends State<BonusScreen> {
         SlipBadge(eur(o.coste), label: 'Coste', tono: o.coste <= Decimal.fromInt(0) ? 'green' : 'amber'),
         SlipBadge(eur(desembolso), label: 'Desembolso', tono: 'gray'),
       ],
-      legs: [
-        SlipLeg(
-          chip: o.resultado,
-          chipTono: 'blue',
-          icon: '💶',
-          casa: o.casa,
-          kind: 'pata anclada (requisito)',
-          odds: cuotaStr(o.cuota),
-          amount: eur(o.importe),
-        ),
-        for (final c in o.coberturas)
-          SlipLeg(
-            chip: c.resultado,
-            icon: '💶',
-            casa: c.casa,
-            kind: 'cobertura (dinero real)',
-            odds: cuotaStr(c.cuota),
-            amount: eur(c.importe),
-          ),
-      ],
+      legs: legs,
       footer: 'Retorno igualado en cualquier resultado.',
     );
   }

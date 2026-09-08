@@ -9,6 +9,13 @@ class SlipBadge {
   const SlipBadge(this.value, {this.label, this.tono = 'gray'});
 }
 
+/// Ordena las patas de un boleto siempre como 1 · X · 2 (las patas cuyo orden
+/// depende del cálculo —gratis/anclada primero— quedan igual que el resto).
+int compararPorResultado(SlipLeg a, SlipLeg b) {
+  const orden = ['1', 'X', '2'];
+  return orden.indexOf(a.chip).compareTo(orden.indexOf(b.chip));
+}
+
 class SlipLeg {
   final String chip; // "1" | "X" | "2"
   final String chipTono;

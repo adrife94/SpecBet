@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:betting_app/core/multibono.dart';
 import 'package:betting_app/core/odds.dart';
+import 'package:betting_app/core/promo.dart';
 
 void main() {
   Decimal d(String s) => Decimal.parse(s);
@@ -46,5 +47,21 @@ void main() {
     ]);
     final ops = evaluarMultibono([p], [bono('Luckia', '100'), bono('Bet365', '100'), bono('Winamax', '100')]);
     expect(ops, isEmpty);
+  });
+
+  test('multibono con promo: el relleno de ganar (2) se coloca en la casa de la promo', () {
+    // Los bonos no pueden anclar el 2 (1.5 < mín 2), así que el 2 es relleno.
+    final p = Partido('A vs B', null, [
+      casa('Luckia', '3', '3', '1.5'), // bono
+      casa('Bet365', '3', '3', '1.5'), // bono
+      casa('Winamax', '2', '2', '6'), // mejor 2 global (no bono)
+      casa('Codere', '2', '2', '5'), // casa con promo (no bono)
+    ]);
+    final bonos = [Bono('Luckia', d('100'), d('2')), Bono('Bet365', d('100'), d('2'))];
+    final op = evaluarMultibono([p], bonos, promo: construirFiltroPromo(['Codere'])).first;
+    final r2 = op.patas.firstWhere((l) => l.resultado == '2');
+    expect(r2.tipo, 'relleno');
+    expect(r2.casa, 'Codere');
+    expect(r2.promo, isTrue);
   });
 }

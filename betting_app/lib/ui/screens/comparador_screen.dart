@@ -5,8 +5,8 @@ import '../../core/compare.dart';
 import '../../core/money.dart';
 import '../../state/app_state.dart';
 import '../theme.dart';
+import '../widgets/form_bits.dart';
 import '../widgets/metric_badge.dart';
-import '../widgets/promo_panel.dart';
 
 class ComparadorScreen extends StatelessWidget {
   const ComparadorScreen({super.key});
@@ -62,7 +62,7 @@ class ComparadorScreen extends StatelessWidget {
             ),
           ),
         ),
-        PromoPanel(importeRef: Decimal.fromInt(100)),
+        pieAviso(context),
       ],
     );
   }

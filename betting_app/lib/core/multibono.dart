@@ -2,6 +2,7 @@ import 'package:decimal/decimal.dart';
 
 import 'money.dart';
 import 'odds.dart';
+import 'promo.dart';
 
 /// Rollover coordinado de 2–3 bonos. Port de `core.calcular_opcion_multi` /
 /// `_opcion_de_partido_multi` / `evaluar_multibono` (sin plazo por ahora).
@@ -19,7 +20,11 @@ class PataMulti {
   final Decimal importe;
   final Decimal cuota;
   final String casa;
-  PataMulti(this.tipo, this.resultado, this.importe, this.cuota, this.casa);
+
+  /// `true` si es un relleno de ganar (1/2) reposicionado en una casa de la
+  /// promo «ventaja de 2 goles».
+  final bool promo;
+  PataMulti(this.tipo, this.resultado, this.importe, this.cuota, this.casa, {this.promo = false});
 }
 
 class OpcionMulti {
@@ -51,7 +56,7 @@ List<List<int>> _perms(List<int> items, int k) {
 OpcionMulti calcularOpcionMulti(
   String partido,
   Map<String, Anclado?> asignacion,
-  Map<String, ({Decimal cuota, String casa})> rellenos,
+  Map<String, ({Decimal cuota, String casa, bool promo})> rellenos,
 ) {
   final anclados = asignacion.values.whereType<Anclado>();
   final retorno = anclados.map((a) => a.bono.importe * a.cuota).reduce((x, y) => y > x ? y : x);
@@ -73,7 +78,7 @@ OpcionMulti calcularOpcionMulti(
       final rel = rellenos[r]!;
       final stake = div(falta, rel.cuota);
       dineroReal += stake;
-      patas.add(PataMulti('relleno', r, stake, rel.cuota, rel.casa));
+      patas.add(PataMulti('relleno', r, stake, rel.cuota, rel.casa, promo: rel.promo));
     }
   }
 
@@ -85,11 +90,14 @@ OpcionMulti calcularOpcionMulti(
 
 /// Mejor opción (menor pérdida) de un partido, o `null` si ninguna asignación es
 /// válida (falta una casa de bono, cuota bajo la mínima o resultado no rellenable).
-OpcionMulti? opcionDePartidoMulti(Partido p, List<Bono> bonos) {
+/// Con [promo], los rellenos de ganar (1/2) se colocan en casas de la promo
+/// distintas de todas las de bono; si ninguna cotiza, se usa la mejor normal.
+OpcionMulti? opcionDePartidoMulti(Partido p, List<Bono> bonos, {FiltroPromo? promo}) {
   final casasBono = bonos.map((b) => normalizar(b.casa)).toSet();
   for (final b in bonos) {
     if (p.casa(b.casa) == null) return null;
   }
+  final casasPromo = promo?.casas.difference(casasBono);
 
   OpcionMulti? mejor;
   for (final perm in _perms([0, 1, 2], bonos.length)) {
@@ -111,18 +119,27 @@ OpcionMulti? opcionDePartidoMulti(Partido p, List<Bono> bonos) {
         .whereType<Anclado>()
         .map((a) => a.bono.importe * a.cuota)
         .reduce((x, y) => y > x ? y : x);
-    final rellenos = <String, ({Decimal cuota, String casa})>{};
+    final rellenos = <String, ({Decimal cuota, String casa, bool promo})>{};
     var cubrible = true;
     for (final r in resultados) {
       final anclado = asignacion[r];
       final falta = anclado == null ? retorno : retorno - anclado.bono.importe * anclado.cuota;
       if (falta > cero) {
-        final cob = mejorCuota(p, r, excluir: casasBono);
+        ({Decimal cuota, String casa})? cob;
+        var esPromo = false;
+        if (casasPromo != null && casasPromo.isNotEmpty && (r == '1' || r == '2')) {
+          final pos = mejorCuota(p, r, soloEn: casasPromo);
+          if (pos != null) {
+            cob = pos;
+            esPromo = true;
+          }
+        }
+        cob ??= mejorCuota(p, r, excluir: casasBono);
         if (cob == null) {
           cubrible = false;
           break;
         }
-        rellenos[r] = cob;
+        rellenos[r] = (cuota: cob.cuota, casa: cob.casa, promo: esPromo);
       }
     }
     if (!cubrible) continue;
@@ -133,11 +150,11 @@ OpcionMulti? opcionDePartidoMulti(Partido p, List<Bono> bonos) {
   return mejor;
 }
 
-/// Mejor opción por partido, ordenadas por pérdida ascendente.
-List<OpcionMulti> evaluarMultibono(List<Partido> partidos, List<Bono> bonos) {
+/// Mejor opción por partido, ordenadas por pérdida ascendente. [promo] se propaga.
+List<OpcionMulti> evaluarMultibono(List<Partido> partidos, List<Bono> bonos, {FiltroPromo? promo}) {
   final out = <OpcionMulti>[];
   for (final p in partidos) {
-    final op = opcionDePartidoMulti(p, bonos);
+    final op = opcionDePartidoMulti(p, bonos, promo: promo);
     if (op != null) out.add(op);
   }
   out.sort((a, b) => a.perdida.compareTo(b.perdida));

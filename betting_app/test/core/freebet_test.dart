@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:betting_app/core/freebet.dart';
 import 'package:betting_app/core/odds.dart';
+import 'package:betting_app/core/promo.dart';
 
 void main() {
   Decimal d(String s) => Decimal.parse(s);
@@ -37,5 +38,21 @@ void main() {
     // con máx 3.5, el "1" (3.60) ya no vale como pata gratis.
     final j = mejorJugada(p, casaBono: 'Luckia', importe: d('10'), cuotaMax: d('3.5'))!;
     expect(j.resultadoGratis == '1', isFalse);
+  });
+
+  test('freebet con promo: la cobertura de ganar (2) se coloca en la casa de la promo', () {
+    final p = Partido('M', null, [
+      casa('Luckia', '3.60', '3.00', '2.00'), // bono, gratis al 1
+      casa('Bet365', '3.50', '3.40', '2.05'),
+      casa('Winamax', '3.55', '3.30', '2.10'), // mejor 2 global
+      casa('Codere', '3.40', '3.10', '1.95'), // casa con promo
+    ]);
+    final j = mejorJugada(p,
+        casaBono: 'Luckia', importe: d('10'), resultadoFijo: '1', promo: construirFiltroPromo(['Codere']))!;
+    final cob2 = j.patas.firstWhere((x) => x.resultado == '2');
+    expect(cob2.casa, 'Codere');
+    expect(cob2.promo, isTrue);
+    // la X no se restringe: sigue en su mejor cobertura normal.
+    expect(j.patas.firstWhere((x) => x.resultado == 'X').promo, isFalse);
   });
 }

@@ -17,18 +17,20 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(const BettingApp());
-    for (final t in ['Comparador', 'Surebet', 'Freebet', 'Bonus', 'Multibono', 'Cuotas']) {
+    for (final t in ['Comparador', 'Surebet', 'Freebet', 'Bono', 'Multibono', 'Cuotas']) {
       await tester.tap(find.text(t).first);
       await tester.pumpAndSettle();
     }
   });
 
-  testWidgets('navega por las seis herramientas con el filtro promo activo', (tester) async {
+  testWidgets('navega por las herramientas con el filtro promo activo', (tester) async {
     await tester.pumpWidget(const BettingApp());
-    // enciende el filtro promo (único Switch) para renderizar el panel en cada tool
+    // el filtro promo solo está en las calculadoras: ve a Surebet y enciéndelo.
+    await tester.tap(find.text('Surebet').first);
+    await tester.pumpAndSettle();
     await tester.tap(find.byType(Switch));
     await tester.pumpAndSettle();
-    for (final t in ['Comparador', 'Surebet', 'Freebet', 'Bonus', 'Multibono', 'Cuotas']) {
+    for (final t in ['Comparador', 'Surebet', 'Freebet', 'Bono', 'Multibono', 'Cuotas']) {
       await tester.tap(find.text(t).first);
       await tester.pumpAndSettle();
     }

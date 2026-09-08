@@ -10,7 +10,13 @@ class AppSidebar extends StatelessWidget {
   final int selected;
   final ValueChanged<int> onSelect;
   final List<NavItem> items;
-  const AppSidebar({super.key, required this.selected, required this.onSelect, required this.items});
+  final bool mostrarPromo;
+  const AppSidebar(
+      {super.key,
+      required this.selected,
+      required this.onSelect,
+      required this.items,
+      this.mostrarPromo = true});
 
   @override
   Widget build(BuildContext context) {
@@ -25,16 +31,18 @@ class AppSidebar extends StatelessWidget {
           children: [
             for (var i = 0; i < items.length; i++)
               _NavButton(item: items[i], on: i == selected, onTap: () => onSelect(i)),
-            const SizedBox(height: 16),
-            Container(
-              decoration: BoxDecoration(
-                color: p.panel2,
-                borderRadius: BorderRadius.circular(9),
-                border: Border.all(color: p.line),
+            if (mostrarPromo) ...[
+              const SizedBox(height: 16),
+              Container(
+                decoration: BoxDecoration(
+                  color: p.panel2,
+                  borderRadius: BorderRadius.circular(9),
+                  border: Border.all(color: p.line),
+                ),
+                padding: const EdgeInsets.all(12),
+                child: const PromoControls(),
               ),
-              padding: const EdgeInsets.all(12),
-              child: const PromoControls(),
-            ),
+            ],
           ],
         ),
       ),

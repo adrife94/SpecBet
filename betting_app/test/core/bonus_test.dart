@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:betting_app/core/bonus.dart';
 import 'package:betting_app/core/odds.dart';
+import 'package:betting_app/core/promo.dart';
 
 void main() {
   Decimal d(String s) => Decimal.parse(s);
@@ -34,5 +35,22 @@ void main() {
     ]);
     final ops = opcionesBonus([p], casaBono: 'Luckia', importe: d('100'), cuotaMinima: d('1.5'));
     expect(ops.any((o) => o.resultado == '1'), isFalse); // 1.30 < 1.5
+  });
+
+  test('bonus con promo: la cobertura de ganar (2) se coloca en la casa de la promo', () {
+    final p = Partido('A vs B', null, [
+      casa('Luckia', '2.10', '3.00', '3.00'), // casa del bono
+      casa('Bet365', '2.05', '4.20', '3.50'), // mejor cobertura X
+      casa('Winamax', '2.00', '3.90', '3.60'), // mejor cobertura 2 global
+      casa('Codere', '2.00', '3.20', '3.40'), // casa con promo
+    ]);
+    final ops = opcionesBonus([p],
+        casaBono: 'Luckia', importe: d('100'), cuotaMinima: d('1.5'), promo: construirFiltroPromo(['Codere']));
+    final op1 = ops.firstWhere((o) => o.resultado == '1'); // ancla el 1, cubre X y 2
+    final cob2 = op1.coberturas.firstWhere((c) => c.resultado == '2');
+    expect(cob2.casa, 'Codere');
+    expect(cob2.promo, isTrue);
+    // la X no se restringe.
+    expect(op1.coberturas.firstWhere((c) => c.resultado == 'X').promo, isFalse);
   });
 }
