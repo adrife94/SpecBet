@@ -32,7 +32,7 @@ class _AppShellState extends State<AppShell> {
     (label: 'Guía', icon: Icons.help_outline),
   ];
 
-  /// El filtro promo solo aplica a las calculadoras que colocan apuestas a ganar.
+  /// El filtro promo solo aplica a las calculadoras que colocan apuestas a ganar
   static const _promoTabs = {'Surebet', 'Freebet', 'Bono', 'Multibono'};
 
   Widget _screen() => switch (_sel) {
