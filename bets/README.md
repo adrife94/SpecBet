@@ -1,156 +1,193 @@
-# SpecBet — CLI
+# bets — CLI de SpecBet
 
-Calculadora de decisiones de apuestas deportivas 1X2 construida con
-**Spec-Driven Development (SDD)**. No apuesta ni obtiene cuotas: lee las cuotas
-de un archivo JSON y hace los cálculos. Este directorio es la CLI en Python; hay
-además una app Flutter multiplataforma en [`../betting_app/`](../betting_app/).
-
-## Comandos
+CLI en Python para tomar decisiones de apuestas deportivas 1X2. Flujo completo:
 
 ```
-compare     ejemplos/partidos.json                  → tabla de % de pago 1X2 y mejor cuota por resultado
-surebet     comparacion.json --inversion 100        → reparto de una inversión sobre un arbitraje 1X2
-freebet     cuotas.json --casa Luckia --importe 10  → dónde cubrir una freebet, su valor y % de conversión
-bonus       cuotas.json --casa Luckia --importe 50 --min 1.5   → apuesta de menor coste para el rollover
-multibonus  cuotas.json --bono Luckia:100:1.5 --bono Bet365:50:1.8   → rollover coordinado de 2-3 bonos
---promo     Bet365,Winamax   (flag común)           → posiciona patas de ganar en casas con promo
+scraper → partidos.json → betting (compare / surebet / freebet / bonus / multibonus)
 ```
 
-## Requisitos
+Requiere Python 3.11+. Todos los comandos se ejecutan desde el directorio `bets/`.
 
-- Python 3.11+
-- pytest (solo para desarrollo)
+---
 
-## Uso
+## 1. Obtención de cuotas (`python -m scraper`)
 
-Todos los comandos se ejecutan desde este directorio (`bets/`). Sin `--json`
-imprimen una tabla legible; con `--json` emiten el mismo resultado como JSON
-reutilizable (importes y cuotas como string) para encadenar herramientas. Los
-avisos salen por `stderr`; el resultado, por `stdout`.
+El scraper abre páginas de casas de apuestas con Playwright y extrae las cuotas 1X2, guardándolas en un JSON que los comandos de análisis consumen.
 
-### `compare` — comparador de cuotas
+### URLs configuradas
+
+Las URLs de las páginas a scrapear se guardan en **`bets/urls.json`**:
+
+```json
+{
+  "urls": [
+    "https://www.sportium.es/apuestas/sports/soccer/competitions/45225",
+    "https://m.apuestas.codere.es/deportesEs/#/EventoPage",
+    "https://www.speedybet.es/betting#sports-hub/football/champions_league",
+    "https://www.winamax.es/apuestas-deportivas/sports/1/800000542/151665",
+    "https://canarias.retabet.es/deportes/futbol/europa/champions-league/10",
+    "https://canarias.kirolbet.es/esp/Sport/Competicion/3"
+  ]
+}
+```
+
+Para cambiar de competición, edita este archivo con las URLs de la nueva competición y vuelve a lanzar el scraper.
+
+### Uso
 
 ```bash
-python -m betting compare ejemplos/partidos.json
-python -m betting compare ejemplos/partidos.json --json
+# Leer URLs de urls.json (comportamiento por defecto)
+python -m scraper --output partidos.json
+
+# Pasar URLs directamente (la casa se detecta por dominio)
+python -m scraper --urls "https://www.sportium.es/..." "https://www.winamax.es/..." --output partidos.json
+
+# Usar las URLs genéricas predefinidas por casa (fútbol general, no una competición concreta)
+python -m scraper --casas sportium winamax retabet --output partidos.json
+
+# Casas disponibles: sportium, codere, winamax, speedybet, retabet, kirolbet, 20bet, bet365
+
+# Modo sin ventana (puede fallar en casas con anti-bot)
+python -m scraper --headless --output partidos.json
 ```
 
-Una fila por partido, ordenada de mayor a menor % de pago; los partidos
-incompletos van al final con `—`.
+### Notas por casa
 
-### `surebet` — reparto sobre un arbitraje 1X2
+| Casa | Observaciones |
+|---|---|
+| Sportium, Winamax, Speedybet, Retabet, Kirolbet | Funcionan sin sesión |
+| Codere | Funciona sin sesión |
+| 20bet | Requiere iniciar sesión en el navegador que se abre la primera vez |
+| Bet365 | Detección de bot agresiva; puede devolver 0 partidos |
 
-Consume la salida de `compare --json`:
-
-```bash
-python -m betting compare ejemplos/partidos-surebet.json --json > comparacion.json
-python -m betting surebet comparacion.json --inversion 100
-```
-
-Reparte la inversión entre 1/X/2 y marca si el partido es `surebet` o `pérdida`.
-
-### `freebet` — cobertura y valor de freebets
-
-```bash
-python -m betting freebet ejemplos/cuotas-freebet.json --casa Luckia --importe 10
-python -m betting freebet ejemplos/cuotas-freebet.json --bonos ejemplos/bonos.json
-```
-
-Para uno o varios bonos: dónde poner la pata gratis, cómo cubrirla, el valor
-extraído y el % de conversión. Filtros opcionales: `--min`/`--max` (cuota de la
-pata gratis), `--fecha-limite`, `--partido`, `--resultado`.
-
-### `bonus` — apuesta de menor coste para el rollover
-
-```bash
-python -m betting bonus ejemplos/cuotas-bonus.json --casa Luckia --importe 50 --min 1.5
-```
-
-Lista las opciones de menor a mayor coste para cumplir el rollover de un bono
-(cuota mínima `--min`; `--fecha-limite` opcional).
-
-### `multibonus` — rollover coordinado de varios bonos
-
-```bash
-python -m betting multibonus ejemplos/cuotas-multibono.json \
-    --bono Luckia:100:1.5 --bono Bet365:50:1.8
-```
-
-Coordina 2 o 3 bonos (`--bono CASA:IMPORTE:MIN`, repetible, o `--bonos ARCHIVO`),
-cada uno entero en un resultado y rellenando con dinero real, ordenado por % de
-pérdida. `--apalancamiento FECHA` descarta los partidos posteriores.
-
-### `--promo` — filtro de promociones
-
-Flag común a `compare`, `surebet`, `freebet` y `bonus`. Recibe las casas que
-ofrecen la promo "ventaja de 2 goles" y posiciona en ellas las patas de ganar,
-mostrando su coste y su *windfall*:
-
-```bash
-python -m betting compare ejemplos/cuotas-promo.json --promo Bet365,Winamax
-```
-
-## Formato del archivo de entrada
+### Formato de salida (`partidos.json`)
 
 ```json
 {
   "version": 1,
   "partidos": [
     {
-      "partido": "Real Madrid vs Barça",
-      "fecha": "2026-09-10",
+      "partido": "Liverpool vs Atlético Madrid",
+      "fecha": "2026-09-09T19:00",
       "cuotas": [
-        { "casa": "Bet365", "1": 2.10, "X": 3.30, "2": 3.50 },
-        { "casa": "Codere", "1": 2.05, "X": 3.40, "2": 3.60 }
+        { "casa": "Sportium",  "1": 1.72, "X": 4.0, "2": 4.33 },
+        { "casa": "Winamax",   "1": 1.72, "X": 4.0, "2": 4.2  },
+        { "casa": "Speedybet", "1": 1.76, "X": 4.1, "2": 4.6  }
       ]
     }
   ]
 }
 ```
 
-`"1"` = gana el local, `"X"` = empate, `"2"` = gana el visitante. Si una casa no
-ofrece un resultado, se omite esa clave. `"fecha"` (ISO 8601) es opcional y solo
-la usan los comandos con plazo (`freebet`, `bonus`, `multibonus`). Hay ejemplos
-listos en [`ejemplos/`](./ejemplos/).
+El scraper intenta consolidar partidos del mismo nombre entre casas. Si una casa escribe el nombre distinto (ej. "FC Barcelona" vs "Barcelona"), puede que aparezcan como entradas separadas — en ese caso, edita `partidos.json` manualmente o fusiona los datos antes de analizarlos.
 
-## Estructura del proyecto
+---
 
-```
-bets/
-├── AGENTS.md              # Contexto e instrucciones para el agente
-├── docs/
-│   └── constitution.md    # Principios innegociables del proyecto
-├── specs/                 # Una especificación por funcionalidad (001–006)
-│   └── NNN-.../           #   spec.md · plan.md · tasks.md · validacion.md
-├── betting/
-│   ├── __main__.py        # python -m betting
-│   ├── cli.py             # Interfaz: parser y formato de salida
-│   ├── core.py            # Lógica pura (cálculos)
-│   └── storage.py         # Carga y validación de los JSON
-├── ejemplos/              # JSON de cuotas y bonos de ejemplo
-└── tests/                 # pytest (un archivo por funcionalidad)
+## 2. Análisis de cuotas (`python -m betting`)
+
+Todos los subcomandos leen el mismo formato JSON (Formato A, el que produce el scraper).
+
+### `compare` — Comparador de cuotas
+
+Muestra las mejores cuotas por resultado y el porcentaje de pago de cada mercado.
+
+```bash
+python -m betting compare partidos.json
+python -m betting compare partidos.json --json          # salida JSON reutilizable
+python -m betting compare partidos.json --promo Codere  # con filtro de promo
 ```
 
-## Desarrollo
+### `surebet` — Arbitraje 1X2
+
+Calcula el reparto óptimo del stake para cubrir los tres resultados con beneficio garantizado.
+
+```bash
+python -m betting surebet partidos.json --inversion 100
+python -m betting surebet partidos.json --inversion 100 --json
+```
+
+> Con `--promo`: lee directamente el Formato A (cuotas por casa) en vez de la salida de `compare --json`.
+
+### `freebet` — Cobertura de freebets
+
+Calcula la apuesta de cobertura para extraer el valor máximo de una freebet.
+
+```bash
+# Freebet única
+python -m betting freebet partidos.json --casa Codere --importe 20
+
+# Con restricciones
+python -m betting freebet partidos.json --casa Codere --importe 20 \
+  --min 1.5 --max 3.0 --fecha-limite 2026-09-10
+
+# Lote de freebets desde un JSON
+python -m betting freebet partidos.json --bonos bonos.json
+
+# Con promo
+python -m betting freebet partidos.json --casa Codere --importe 20 --promo Codere
+```
+
+Opciones adicionales: `--partido "Liverpool vs Atlético Madrid"`, `--resultado 1|X|2`.
+
+### `bonus` — Rollover de bono
+
+Encuentra la apuesta de menor coste para cumplir el requisito de rollover de un bono de depósito.
+
+```bash
+python -m betting bonus partidos.json --casa Sportium --importe 50 --min 1.8
+python -m betting bonus partidos.json --casa Sportium --importe 50 --min 1.8 --fecha-limite 2026-09-10
+```
+
+### `multibonus` — Rollover coordinado de varios bonos
+
+Coordina 2–3 bonos para que cada uno cubra un resultado distinto del mismo partido, minimizando la pérdida total.
+
+```bash
+# Definir bonos en línea (--bono se repite)
+python -m betting multibonus partidos.json \
+  --bono Codere:50:1.8 \
+  --bono Sportium:30:2.0 \
+  --bono Winamax:20:1.5
+
+# Definir bonos en un JSON
+python -m betting multibonus partidos.json --bonos bonos.json
+
+# Excluir partidos a partir de una fecha (apalancamiento)
+python -m betting multibonus partidos.json \
+  --bono Codere:50:1.8 --bono Sportium:30:2.0 \
+  --apalancamiento 2026-09-10
+```
+
+### `--promo` — Filtro de promociones
+
+Disponible en `compare`, `surebet`, `freebet` y `bonus`. Indica las casas que tienen activa la promo "ventaja de 2 goles": posiciona las patas de ganar (1/2) en esas casas y muestra el coste frente al beneficio potencial (windfall).
+
+```bash
+python -m betting compare partidos.json --promo Codere,Sportium
+```
+
+---
+
+## 3. Flujo típico
+
+```bash
+# 1. Obtener cuotas (abre ventanas de navegador)
+python -m scraper --output partidos.json
+
+# 2. Ver comparativa de cuotas
+python -m betting compare partidos.json
+
+# 3. Buscar surebets con 100 € de inversión
+python -m betting surebet partidos.json --inversion 100
+
+# 4. Cubrir una freebet de 25 € en Codere
+python -m betting freebet partidos.json --casa Codere --importe 25
+```
+
+---
+
+## 4. Tests
 
 ```bash
 pytest -q
 ```
-
-## Construido con SDD
-
-Cada funcionalidad se especificó **antes** de escribirse, y cada paso del flujo
-dejó su artefacto en `specs/`. El flujo por funcionalidad es: Constitución →
-Spec → Clarificación → Plan → Tareas → Implementación (una tarea cada vez, tests
-primero) → Validación → Cambio (primero la spec, luego el código). Las reglas del
-proyecto viven en [`docs/constitution.md`](./docs/constitution.md) y
-[`AGENTS.md`](./AGENTS.md).
-
-| # | Funcionalidad | Comando | Artefactos |
-|---|---|---|---|
-| 001 | Comparador de cuotas 1X2 | `compare` | [spec](./specs/001-comparador-cuotas/spec.md) · [plan](./specs/001-comparador-cuotas/plan.md) · [tasks](./specs/001-comparador-cuotas/tasks.md) · [validación](./specs/001-comparador-cuotas/validacion.md) |
-| 002 | Reparto sobre arbitraje | `surebet` | [spec](./specs/002-surebet/spec.md) · [plan](./specs/002-surebet/plan.md) · [tasks](./specs/002-surebet/tasks.md) · [validación](./specs/002-surebet/validacion.md) |
-| 003 | Cobertura y valor de freebets | `freebet` | [spec](./specs/003-freebet/spec.md) · [plan](./specs/003-freebet/plan.md) · [tasks](./specs/003-freebet/tasks.md) · [validación](./specs/003-freebet/validacion.md) |
-| 004 | Rollover de un bono | `bonus` | [spec](./specs/004-bonus/spec.md) · [plan](./specs/004-bonus/plan.md) · [tasks](./specs/004-bonus/tasks.md) · [validación](./specs/004-bonus/validacion.md) |
-| 005 | Filtro de promociones | `--promo` | [spec](./specs/005-filtro-promo/spec.md) · [plan](./specs/005-filtro-promo/plan.md) · [tasks](./specs/005-filtro-promo/tasks.md) · [validación](./specs/005-filtro-promo/validacion.md) |
-| 006 | Rollover coordinado | `multibonus` | [spec](./specs/006-multibono/spec.md) · [plan](./specs/006-multibono/plan.md) · [tasks](./specs/006-multibono/tasks.md) · [validación](./specs/006-multibono/validacion.md) |
