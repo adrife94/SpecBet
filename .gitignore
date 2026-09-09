@@ -15,3 +15,11 @@ __pycache__/
 # Datos locales de la app
 habits.json
 habits.json.tmp
+
+# Scraper: perfiles de navegador persistentes (sesiones de cada casa)
+bets/scraper/profiles/
+
+# Scraper: archivos de cuotas generados en runtime (no son código)
+bets/partidos.json
+bets/partidos_cl.json
+bets/test_all.json
